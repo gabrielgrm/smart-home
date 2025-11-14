@@ -30,7 +30,7 @@ const unsigned long CLICK_TIMEOUT = 1000;
 
 unsigned long lastBlinkTime = 0;
 bool blinkState = false;
-const unsigned long BLINK_INTERVAL = 500;
+const unsigned long BLINK_INTERVAL = 100;
 
 void ligarAlerta() {
     digitalWrite(LED_RED, HIGH);
