@@ -98,6 +98,41 @@ void conectarMQTT() {
     }
 }
 
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+    String msg;
+    for (unsigned int i = 0; i < length; i++) {
+        msg += (char)payload[i];
+    }
+
+    Serial.print("Comando recebido em ");
+    Serial.print(topic);
+    Serial.print(": ");
+    Serial.println(msg);
+
+    if (String(topic) == TOPICO_CMD) {
+        if (msg == "STOP") {
+            alertaLatched = false;
+            alarmePausado = false;
+            desligarAlerta();
+            mqttClient.publish(TOPICO_ESTADO, "OK");
+            Serial.println("Alarme parado via MQTT (STOP).");
+        } else if (msg == "PAUSE") {
+            alarmePausado = true;
+            alertaLatched = false;
+            beepTriple();
+            mostrarAlarmePausado();
+            mqttClient.publish(TOPICO_ESTADO, "PAUSADO");
+            Serial.println("Alarme PAUSADO via MQTT.");
+        } else if (msg == "RESUME") {
+            alarmePausado = false;
+            beepTriple();
+            mqttClient.publish(TOPICO_ESTADO, "OK");
+            Serial.println("Alarme RETOMADO via MQTT.");
+        }
+    }
+}
+
+
 void setup() {
     Serial.begin(115200);
     delay(1500);
@@ -114,6 +149,7 @@ void setup() {
 
     conectarWiFi();
     mqttClient.setServer(MQTT_HOST, MQTT_PORT);
+    mqttClient.setCallback(mqttCallback);
 
     Serial.println("Sistema SmartLight Guardian iniciado!");
 }
