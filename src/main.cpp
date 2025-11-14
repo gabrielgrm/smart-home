@@ -2,6 +2,7 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
+#include <HTTPClient.h>
 #include "../include/config.h"
 
 #define LDR_PIN 33
@@ -22,6 +23,9 @@ WiFiClientSecure secureClient;
 PubSubClient mqttClient(secureClient);
 
 bool alertaLatched = false;
+
+unsigned long alertActivatedSince = 0;
+bool smsSentForThisAlert = false;
 
 int clickCount = 0;
 bool alarmePausado = false;
@@ -222,9 +226,34 @@ void loop() {
             ligarAlerta();
             mqttClient.publish(TOPICO_ESTADO, "ALERTA");
             Serial.println("Alerta ativado e latched");
+            alertActivatedSince = millis();
+            smsSentForThisAlert = false;
         } else {
             desligarAlerta();
             mqttClient.publish(TOPICO_ESTADO, "OK");
+        }
+    }
+
+    if (alertaLatched && !smsSentForThisAlert && !alarmePausado) {
+        if (millis() - alertActivatedSince >= 10000) {
+            WiFiClientSecure tlsClient;
+            tlsClient.setInsecure();
+            HTTPClient http;
+            String url = String("https://api.twilio.com/2010-04-01/Accounts/") + TWILIO_ACCOUNT_SID + "/Messages.json";
+            http.begin(tlsClient, url);
+            http.setAuthorization(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+            http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+            String body = "To=" + String(ALERT_SMS_TO_NUMBER) + "&From=" + String(TWILIO_FROM_NUMBER) + "&Body=" + String("Alerta ativado no Guardian!");
+            int code = http.POST(body);
+            if (code > 0) {
+                Serial.print("SMS enviado, HTTP code: ");
+                Serial.println(code);
+                smsSentForThisAlert = true;
+            } else {
+                Serial.print("Falha ao enviar SMS: ");
+                Serial.println(code);
+            }
+            http.end();
         }
     }
 

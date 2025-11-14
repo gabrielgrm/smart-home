@@ -86,6 +86,10 @@ export default function Home() {
 
   const isAlert = estado === "ALERTA";
   const isOk = estado === "OK";
+  const [lookupPhone, setLookupPhone] = useState<string>("+5581998781729");
+  const [lookupResult, setLookupResult] = useState<any>(null);
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [lookupError, setLookupError] = useState<string | null>(null);
 
   return (
     <main
@@ -376,6 +380,42 @@ export default function Home() {
               • Clique em <b>Desativar</b> para desligar o alerta atual. <br />
               • <b>Segure</b> o botão azul por ~1 segundo para pausar/retomar o sistema.
             </p>
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 14, color: '#9ca3af', marginBottom: 6 }}>Validar número (Twilio Lookup)</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  value={lookupPhone}
+                  onChange={(e) => setLookupPhone(e.target.value)}
+                  style={{ padding: 8, borderRadius: 8, border: '1px solid #334155', background:'#020617', color:'#e5e7eb', flex:1 }}
+                />
+                <button
+                  onClick={async () => {
+                    setLookupLoading(true);
+                    setLookupResult(null);
+                    setLookupError(null);
+                    try {
+                      const res = await fetch('/api/lookup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: lookupPhone }) });
+                      const j = await res.json();
+                      if (!res.ok) {
+                        setLookupError(j.error || 'Erro na lookup');
+                      } else {
+                        setLookupResult(j.data || j);
+                      }
+                    } catch (err: any) {
+                      setLookupError(err.message || String(err));
+                    }
+                    setLookupLoading(false);
+                  }}
+                  style={{ padding: '8px 12px', borderRadius: 8, border: 'none', background: '#06b6d4', color: '#042f3a', cursor: 'pointer' }}
+                >
+                  {lookupLoading ? 'Validando...' : 'Validar'}
+                </button>
+              </div>
+              {lookupError && <div style={{ color: '#fca5a5', marginTop: 8 }}>{lookupError}</div>}
+              {lookupResult && (
+                <pre style={{ marginTop: 8, background: '#021024', padding: 10, borderRadius: 8, maxHeight: 220, overflow: 'auto', color: '#cbd5e1' }}>{JSON.stringify(lookupResult, null, 2)}</pre>
+              )}
+            </div>
           </div>
         </div>
 
