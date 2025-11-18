@@ -6,8 +6,9 @@
 #include "../include/config.h"
 
 #define LDR_PIN 33
-#define LED_RED 25
-#define LED_GREEN 32
+#define LED_RED 18
+#define LED_GREEN 4                                          
+#define LED_BLUE 27
 #define BUZZER_PIN 23
 #define BUTTON_PIN 19
 
@@ -39,18 +40,21 @@ const unsigned long BLINK_INTERVAL = 100;
 void ligarAlerta() {
     digitalWrite(LED_RED, HIGH);
     digitalWrite(LED_GREEN, LOW);
+    digitalWrite(LED_BLUE, LOW);
     ledcWrite(BUZZER_CHANNEL, 128);
 }
 
 void desligarAlerta() {
     digitalWrite(LED_RED, LOW);
     digitalWrite(LED_GREEN, HIGH);
+    digitalWrite(LED_BLUE, LOW);
     ledcWrite(BUZZER_CHANNEL, 0);
 }
 
 void mostrarAlarmePausado() {
-    digitalWrite(LED_RED, HIGH);
-    digitalWrite(LED_GREEN, HIGH);
+    digitalWrite(LED_RED, LOW);
+    digitalWrite(LED_GREEN, LOW);
+    digitalWrite(LED_BLUE, HIGH);
     ledcWrite(BUZZER_CHANNEL, 0);
 }
 
@@ -143,6 +147,7 @@ void setup() {
 
     pinMode(LED_RED, OUTPUT);
     pinMode(LED_GREEN, OUTPUT);
+    pinMode(LED_BLUE, OUTPUT);
     pinMode(BUTTON_PIN, INPUT);
 
     ledcSetup(BUZZER_CHANNEL, BUZZER_FREQ, BUZZER_RES);
@@ -155,7 +160,7 @@ void setup() {
     mqttClient.setServer(MQTT_HOST, MQTT_PORT);
     mqttClient.setCallback(mqttCallback);
 
-    Serial.println("Sistema SmartLight Guardian iniciado!");
+    Serial.println("Sistema Home Alarm iniciado!");
 }
 
 void loop() {
@@ -174,11 +179,12 @@ void loop() {
         if (millis() - lastClickTime > CLICK_TIMEOUT) {
             clickCount = 1;
             lastClickTime = millis();
-
-            alertaLatched = false;
-            desligarAlerta();
-            mqttClient.publish(TOPICO_ESTADO, "OK");
-            Serial.println("Alarme parado por um clique");
+            if (!alarmePausado) {
+                alertaLatched = false;
+                desligarAlerta();
+                mqttClient.publish(TOPICO_ESTADO, "OK");
+                Serial.println("Alarme parado por um clique");
+            }
         } else {
             clickCount++;
             lastClickTime = millis();
