@@ -5,24 +5,31 @@
 #include <HTTPClient.h>
 #include "../include/config.h"
 
-#define LDR_PIN 33
-#define LED_RED 18
-#define LED_GREEN 4                                          
-#define LED_BLUE 27
+// ------------------------ PINOS ------------------------
+#define TRIG_PIN   25   // TRIG do ultrassônico
+#define ECHO_PIN   33   // ECHO do ultrassônico
+
+#define LED_RED    32
+#define LED_GREEN  21                                         
+#define LED_BLUE   18
 #define BUZZER_PIN 23
-#define BUTTON_PIN 19
+#define BUTTON_PIN 13
 
+// ------------------------ PWM BUZZER --------------------
 #define BUZZER_CHANNEL 0
-#define BUZZER_FREQ 2000
-#define BUZZER_RES 8
+#define BUZZER_FREQ    2000
+#define BUZZER_RES     8
 
-#define TOPICO_LDR    "projeto/guardian/sensor/ldr"
+// ------------------------ TOPICOS MQTT ------------------
+#define TOPICO_SENSOR "projeto/guardian/sensor/medida"   // antes era LDR, agora é distância
 #define TOPICO_ESTADO "projeto/guardian/sensor/estado"
 #define TOPICO_CMD    "projeto/guardian/comandos"
 
+// ------------------------ OBJETOS GLOBAIS ---------------
 WiFiClientSecure secureClient;
 PubSubClient mqttClient(secureClient);
 
+// ------------------------ ESTADOS DO SISTEMA ------------
 bool alertaLatched = false;
 
 unsigned long alertActivatedSince = 0;
@@ -37,6 +44,12 @@ unsigned long lastBlinkTime = 0;
 bool blinkState = false;
 const unsigned long BLINK_INTERVAL = 100;
 
+// Limite de disparo em cm (ex.: menos que 30 cm aciona alerta)
+const float DISTANCIA_LIMITE_CM = 30.0;
+
+// ========================================================
+// FUNÇÕES DE HARDWARE
+// ========================================================
 void ligarAlerta() {
     digitalWrite(LED_RED, HIGH);
     digitalWrite(LED_GREEN, LOW);
@@ -71,6 +84,37 @@ void beepTriple() {
     }
 }
 
+// ========================================================
+// MEDIÇÃO DO ULTRASSÔNICO
+// ========================================================
+float medirDistanciaCm() {
+    // Garante TRIG em LOW antes do disparo
+    digitalWrite(TRIG_PIN, LOW);
+    delayMicroseconds(2);
+
+    // Pulso de 10us no TRIG
+    digitalWrite(TRIG_PIN, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(TRIG_PIN, LOW);
+
+    // Mede o tempo em nível alto no ECHO
+    // Timeout de 30ms (~5m de distância máx) para não travar
+    long duracao = pulseIn(ECHO_PIN, HIGH, 30000);
+
+    if (duracao == 0) {
+        // Sem eco (muito longe ou erro)
+        return -1.0;
+    }
+
+    // Fórmula: distância (cm) = (duracao(us) * velocidade do som) / 2
+    // Velocidade do som ~ 0.0343 cm/us
+    float distancia = (duracao * 0.0343f) / 2.0f;
+    return distancia;
+}
+
+// ========================================================
+// WIFI
+// ========================================================
 void conectarWiFi() {
     Serial.print("Conectando ao WiFi: ");
     Serial.println(WIFI_SSID);
@@ -88,6 +132,9 @@ void conectarWiFi() {
     Serial.println(WiFi.localIP());
 }
 
+// ========================================================
+// MQTT
+// ========================================================
 void conectarMQTT() {
     while (!mqttClient.connected()) {
         Serial.print("Conectando ao MQTT... ");
@@ -140,40 +187,61 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     }
 }
 
-
+// ========================================================
+// SETUP
+// ========================================================
 void setup() {
     Serial.begin(115200);
     delay(1500);
 
+    // Pinos do LED RGB
     pinMode(LED_RED, OUTPUT);
     pinMode(LED_GREEN, OUTPUT);
     pinMode(LED_BLUE, OUTPUT);
+
+    // Botão
     pinMode(BUTTON_PIN, INPUT);
 
+    // Ultrassônico
+    pinMode(TRIG_PIN, OUTPUT);
+    pinMode(ECHO_PIN, INPUT);
+
+    // PWM do buzzer
     ledcSetup(BUZZER_CHANNEL, BUZZER_FREQ, BUZZER_RES);
     ledcAttachPin(BUZZER_PIN, BUZZER_CHANNEL);
     ledcWrite(BUZZER_CHANNEL, 0);
 
+    // TLS sem verificação de certificado (didático)
     secureClient.setInsecure();
 
     conectarWiFi();
     mqttClient.setServer(MQTT_HOST, MQTT_PORT);
     mqttClient.setCallback(mqttCallback);
 
-    Serial.println("Sistema Home Alarm iniciado!");
+    Serial.println("Sistema Home Alarm iniciado com sensor ultrassônico!");
 }
 
+// ========================================================
+// LOOP PRINCIPAL
+// ========================================================
 void loop() {
     if (!mqttClient.connected()) {
         conectarMQTT();
     }
     mqttClient.loop();
 
-    int ldr = analogRead(LDR_PIN);
-    int leituraBotao = digitalRead(BUTTON_PIN);
+    // --- Leitura do sensor ultrassônico ---
+    float distancia = medirDistanciaCm();
+    Serial.print("Distância: ");
+    if (distancia < 0) {
+        Serial.println("sem leitura (fora de alcance)");
+    } else {
+        Serial.print(distancia);
+        Serial.println(" cm");
+    }
 
-    Serial.print("LDR = ");
-    Serial.println(ldr);
+    // --- Leitura do botão ---
+    int leituraBotao = digitalRead(BUTTON_PIN);
 
     if (leituraBotao == HIGH) {
         if (millis() - lastClickTime > CLICK_TIMEOUT) {
@@ -215,6 +283,7 @@ void loop() {
         clickCount = 0;
     }
 
+    // --- Lógica de estados ---
     if (alarmePausado) {
         mostrarAlarmePausado();
     } else if (alertaLatched) {
@@ -223,15 +292,17 @@ void loop() {
             blinkState = !blinkState;
             digitalWrite(LED_RED, blinkState ? HIGH : LOW);
             digitalWrite(LED_GREEN, LOW);
+            digitalWrite(LED_BLUE, LOW);
         }
         ledcWrite(BUZZER_CHANNEL, 128);
         mqttClient.publish(TOPICO_ESTADO, "ALERTA");
     } else {
-        if (ldr >= 4095) {
+        // Condição de disparo por distância (objeto perto)
+        if (distancia > 0 && distancia <= DISTANCIA_LIMITE_CM) {
             alertaLatched = true;
             ligarAlerta();
             mqttClient.publish(TOPICO_ESTADO, "ALERTA");
-            Serial.println("Alerta ativado e latched");
+            Serial.println("Alerta ativado e latched por distância!");
             alertActivatedSince = millis();
             smsSentForThisAlert = false;
         } else {
@@ -240,8 +311,9 @@ void loop() {
         }
     }
 
+    // --- SMS via Twilio após X ms de alerta ativo ---
     if (alertaLatched && !smsSentForThisAlert && !alarmePausado) {
-        if (millis() - alertActivatedSince >= 10000) {
+        if (millis() - alertActivatedSince >= 10000) {  // 10 segundos
             WiFiClientSecure tlsClient;
             tlsClient.setInsecure();
             HTTPClient http;
@@ -249,7 +321,11 @@ void loop() {
             http.begin(tlsClient, url);
             http.setAuthorization(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
             http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-            String body = "To=" + String(ALERT_SMS_TO_NUMBER) + "&From=" + String(TWILIO_FROM_NUMBER) + "&Body=" + String("Alerta ativado no Guardian!");
+
+            String body = "To=" + String(ALERT_SMS_TO_NUMBER)
+                        + "&From=" + String(TWILIO_FROM_NUMBER)
+                        + "&Body=" + String("Alerta ativado no Guardian (ultrassonico)!");
+
             int code = http.POST(body);
             if (code > 0) {
                 Serial.print("SMS enviado, HTTP code: ");
@@ -263,9 +339,14 @@ void loop() {
         }
     }
 
-    char msg[10];
-    sprintf(msg, "%d", ldr);
-    mqttClient.publish(TOPICO_LDR, msg);
+    // --- Publicação da medida no MQTT ---
+    char msg[16];
+    if (distancia < 0) {
+        snprintf(msg, sizeof(msg), "NA");
+    } else {
+        snprintf(msg, sizeof(msg), "%.1f", distancia);
+    }
+    mqttClient.publish(TOPICO_SENSOR, msg);
 
     delay(300);
 }
