@@ -85,7 +85,7 @@ void ligarAlerta() {
     digitalWrite(LED_RED, HIGH);
     digitalWrite(LED_GREEN, LOW);
     digitalWrite(LED_BLUE, LOW);
-    ledcWrite(BUZZER_CHANNEL, 128);
+    ledcWrite(BUZZER_CHANNEL, 255);
 }
 
 void desligarAlerta() {
