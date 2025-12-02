@@ -6,24 +6,55 @@
 #include "../include/config.h"
 
 // ------------------------ PINOS ------------------------
+// Ultrassônico
 #define TRIG_PIN   25   // TRIG do ultrassônico
 #define ECHO_PIN   33   // ECHO do ultrassônico
 
+// LED RGB principal do alarme
 #define LED_RED    32
-#define LED_GREEN  21                                         
+#define LED_GREEN  21
 #define LED_BLUE   18
-#define BUZZER_PIN 23
-#define BUTTON_PIN 13
+
+// Buzzer e botão
+#define BUZZER_PIN 13
+#define BUTTON_PIN 19
+
+// LED RGB da SALA
+#define LED_SALA_R 4
+#define LED_SALA_G 2
+#define LED_SALA_B 15
+
+// LED RGB do QUARTO
+#define LED_QUARTO_R 23
+#define LED_QUARTO_G 22
+#define LED_QUARTO_B 5
 
 // ------------------------ PWM BUZZER --------------------
 #define BUZZER_CHANNEL 0
 #define BUZZER_FREQ    2000
 #define BUZZER_RES     8
 
+// ------------------------ PWM LEDs RGB -----------------
+// 8 bits de resolução (0–255)
+#define LED_PWM_FREQ   5000
+#define LED_PWM_RES    8
+
+// Canais para LED da SALA
+#define LED_SALA_R_CH  1
+#define LED_SALA_G_CH  2
+#define LED_SALA_B_CH  3
+
+// Canais para LED do QUARTO
+#define LED_QUARTO_R_CH 4
+#define LED_QUARTO_G_CH 5
+#define LED_QUARTO_B_CH 6
+
 // ------------------------ TOPICOS MQTT ------------------
-#define TOPICO_SENSOR "projeto/guardian/sensor/medida"   // antes era LDR, agora é distância
-#define TOPICO_ESTADO "projeto/guardian/sensor/estado"
-#define TOPICO_CMD    "projeto/guardian/comandos"
+#define TOPICO_SENSOR      "projeto/guardian/sensor/medida"
+#define TOPICO_ESTADO      "projeto/guardian/sensor/estado"
+#define TOPICO_CMD         "projeto/guardian/comandos"
+#define TOPICO_LED_SALA    "projeto/guardian/led/sala"
+#define TOPICO_LED_QUARTO  "projeto/guardian/led/quarto"
 
 // ------------------------ OBJETOS GLOBAIS ---------------
 WiFiClientSecure secureClient;
@@ -84,30 +115,36 @@ void beepTriple() {
     }
 }
 
+// --- Helpers para LEDs RGB da sala e quarto (0–255) ---
+void setSalaColor(uint8_t r, uint8_t g, uint8_t b) {
+    ledcWrite(LED_SALA_R_CH, r);
+    ledcWrite(LED_SALA_G_CH, g);
+    ledcWrite(LED_SALA_B_CH, b);
+}
+
+void setQuartoColor(uint8_t r, uint8_t g, uint8_t b) {
+    ledcWrite(LED_QUARTO_R_CH, r);
+    ledcWrite(LED_QUARTO_G_CH, g);
+    ledcWrite(LED_QUARTO_B_CH, b);
+}
+
 // ========================================================
 // MEDIÇÃO DO ULTRASSÔNICO
 // ========================================================
 float medirDistanciaCm() {
-    // Garante TRIG em LOW antes do disparo
     digitalWrite(TRIG_PIN, LOW);
     delayMicroseconds(2);
 
-    // Pulso de 10us no TRIG
     digitalWrite(TRIG_PIN, HIGH);
     delayMicroseconds(10);
     digitalWrite(TRIG_PIN, LOW);
 
-    // Mede o tempo em nível alto no ECHO
-    // Timeout de 30ms (~5m de distância máx) para não travar
     long duracao = pulseIn(ECHO_PIN, HIGH, 30000);
 
     if (duracao == 0) {
-        // Sem eco (muito longe ou erro)
         return -1.0;
     }
 
-    // Fórmula: distância (cm) = (duracao(us) * velocidade do som) / 2
-    // Velocidade do som ~ 0.0343 cm/us
     float distancia = (duracao * 0.0343f) / 2.0f;
     return distancia;
 }
@@ -135,6 +172,32 @@ void conectarWiFi() {
 // ========================================================
 // MQTT
 // ========================================================
+
+// Parse "R,G,B" -> uint8_t r,g,b
+bool parseRGB(const String& msg, uint8_t &r, uint8_t &g, uint8_t &b) {
+    int c1 = msg.indexOf(',');
+    int c2 = msg.indexOf(',', c1 + 1);
+    if (c1 < 0 || c2 < 0) return false;
+
+    String sr = msg.substring(0, c1);
+    String sg = msg.substring(c1 + 1, c2);
+    String sb = msg.substring(c2 + 1);
+
+    int ir = sr.toInt();
+    int ig = sg.toInt();
+    int ib = sb.toInt();
+
+    ir = constrain(ir, 0, 255);
+    ig = constrain(ig, 0, 255);
+    ib = constrain(ib, 0, 255);
+
+    r = (uint8_t)ir;
+    g = (uint8_t)ig;
+    b = (uint8_t)ib;
+
+    return true;
+}
+
 void conectarMQTT() {
     while (!mqttClient.connected()) {
         Serial.print("Conectando ao MQTT... ");
@@ -145,6 +208,8 @@ void conectarMQTT() {
         if (mqttClient.connect(clientId.c_str(), MQTT_USER, MQTT_PASS)) {
             Serial.println("Conectado!");
             mqttClient.subscribe(TOPICO_CMD);
+            mqttClient.subscribe(TOPICO_LED_SALA);
+            mqttClient.subscribe(TOPICO_LED_QUARTO);
         } else {
             Serial.print("Falhou. rc=");
             Serial.println(mqttClient.state());
@@ -164,7 +229,9 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     Serial.print(": ");
     Serial.println(msg);
 
-    if (String(topic) == TOPICO_CMD) {
+    String t = String(topic);
+
+    if (t == TOPICO_CMD) {
         if (msg == "STOP") {
             alertaLatched = false;
             alarmePausado = false;
@@ -185,6 +252,24 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
             Serial.println("Alarme RETOMADO via MQTT.");
         }
     }
+    else if (t == TOPICO_LED_SALA) {
+        uint8_t r, g, b;
+        if (parseRGB(msg, r, g, b)) {
+            setSalaColor(r, g, b);
+            Serial.printf("LED SALA -> R:%d G:%d B:%d\n", r, g, b);
+        } else {
+            Serial.println("Payload inválido para LED SALA (use R,G,B).");
+        }
+    }
+    else if (t == TOPICO_LED_QUARTO) {
+        uint8_t r, g, b;
+        if (parseRGB(msg, r, g, b)) {
+            setQuartoColor(r, g, b);
+            Serial.printf("LED QUARTO -> R:%d G:%d B:%d\n", r, g, b);
+        } else {
+            Serial.println("Payload inválido para LED QUARTO (use R,G,B).");
+        }
+    }
 }
 
 // ========================================================
@@ -194,7 +279,7 @@ void setup() {
     Serial.begin(115200);
     delay(1500);
 
-    // Pinos do LED RGB
+    // Pinos do LED RGB principal
     pinMode(LED_RED, OUTPUT);
     pinMode(LED_GREEN, OUTPUT);
     pinMode(LED_BLUE, OUTPUT);
@@ -206,10 +291,36 @@ void setup() {
     pinMode(TRIG_PIN, OUTPUT);
     pinMode(ECHO_PIN, INPUT);
 
+    // LEDS RGB sala e quarto
+    pinMode(LED_SALA_R, OUTPUT);
+    pinMode(LED_SALA_G, OUTPUT);
+    pinMode(LED_SALA_B, OUTPUT);
+    pinMode(LED_QUARTO_R, OUTPUT);
+    pinMode(LED_QUARTO_G, OUTPUT);
+    pinMode(LED_QUARTO_B, OUTPUT);
+
     // PWM do buzzer
     ledcSetup(BUZZER_CHANNEL, BUZZER_FREQ, BUZZER_RES);
     ledcAttachPin(BUZZER_PIN, BUZZER_CHANNEL);
     ledcWrite(BUZZER_CHANNEL, 0);
+
+    // PWM LEDs sala
+    ledcSetup(LED_SALA_R_CH, LED_PWM_FREQ, LED_PWM_RES);
+    ledcSetup(LED_SALA_G_CH, LED_PWM_FREQ, LED_PWM_RES);
+    ledcSetup(LED_SALA_B_CH, LED_PWM_FREQ, LED_PWM_RES);
+    ledcAttachPin(LED_SALA_R, LED_SALA_R_CH);
+    ledcAttachPin(LED_SALA_G, LED_SALA_G_CH);
+    ledcAttachPin(LED_SALA_B, LED_SALA_B_CH);
+    setSalaColor(0, 0, 0);
+
+    // PWM LEDs quarto
+    ledcSetup(LED_QUARTO_R_CH, LED_PWM_FREQ, LED_PWM_RES);
+    ledcSetup(LED_QUARTO_G_CH, LED_PWM_FREQ, LED_PWM_RES);
+    ledcSetup(LED_QUARTO_B_CH, LED_PWM_FREQ, LED_PWM_RES);
+    ledcAttachPin(LED_QUARTO_R, LED_QUARTO_R_CH);
+    ledcAttachPin(LED_QUARTO_G, LED_QUARTO_G_CH);
+    ledcAttachPin(LED_QUARTO_B, LED_QUARTO_B_CH);
+    setQuartoColor(0, 0, 0);
 
     // TLS sem verificação de certificado (didático)
     secureClient.setInsecure();
@@ -218,7 +329,7 @@ void setup() {
     mqttClient.setServer(MQTT_HOST, MQTT_PORT);
     mqttClient.setCallback(mqttCallback);
 
-    Serial.println("Sistema Home Alarm iniciado com sensor ultrassônico!");
+    Serial.println("Sistema Home Alarm iniciado com sensor ultrassônico e LEDs RGB!");
 }
 
 // ========================================================
@@ -297,7 +408,6 @@ void loop() {
         ledcWrite(BUZZER_CHANNEL, 128);
         mqttClient.publish(TOPICO_ESTADO, "ALERTA");
     } else {
-        // Condição de disparo por distância (objeto perto)
         if (distancia > 0 && distancia <= DISTANCIA_LIMITE_CM) {
             alertaLatched = true;
             ligarAlerta();
