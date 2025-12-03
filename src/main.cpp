@@ -3,12 +3,31 @@
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
 #include <HTTPClient.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/semphr.h"
+#include "freertos/queue.h"
 #include "../include/config.h"
 
-// ------------------------ PINOS ------------------------
+// ========================================================
+// FREERTOS - CONFIGURAÇÃO E SINCRONIZAÇÃO
+// ========================================================
+// O FreeRTOS permite executar múltiplas tarefas simultaneamente
+// Cada tarefa tem sua própria função e prioridade
+
+// Mutexes para proteger variáveis compartilhadas entre tarefas
+SemaphoreHandle_t mutexEstado;  // Protege: alertaLatched, alarmePausado, etc
+SemaphoreHandle_t mutexDistancia; // Protege: leitura da distância
+
+// Fila para comunicação entre tarefas (opcional, para envio de comandos)
+QueueHandle_t filaComandos;
+
+// ========================================================
+// PINOS DO HARDWARE
+// ========================================================
 // Ultrassônico
-#define TRIG_PIN   25   // TRIG do ultrassônico
-#define ECHO_PIN   33   // ECHO do ultrassônico
+#define TRIG_PIN   25
+#define ECHO_PIN   33
 
 // LED RGB principal do alarme
 #define LED_RED    32
@@ -29,13 +48,13 @@
 #define LED_QUARTO_G 22
 #define LED_QUARTO_B 5
 
-// ------------------------ PWM BUZZER --------------------
+// ========================================================
+// PWM CONFIGURATION
+// ========================================================
 #define BUZZER_CHANNEL 0
 #define BUZZER_FREQ    2000
 #define BUZZER_RES     8
 
-// ------------------------ PWM LEDs RGB -----------------
-// 8 bits de resolução (0–255)
 #define LED_PWM_FREQ   5000
 #define LED_PWM_RES    8
 
@@ -49,34 +68,50 @@
 #define LED_QUARTO_G_CH 5
 #define LED_QUARTO_B_CH 6
 
-// ------------------------ TOPICOS MQTT ------------------
+// ========================================================
+// TOPICOS MQTT
+// ========================================================
 #define TOPICO_SENSOR      "projeto/guardian/sensor/medida"
 #define TOPICO_ESTADO      "projeto/guardian/sensor/estado"
 #define TOPICO_CMD         "projeto/guardian/comandos"
 #define TOPICO_LED_SALA    "projeto/guardian/led/sala"
 #define TOPICO_LED_QUARTO  "projeto/guardian/led/quarto"
 
-// ------------------------ OBJETOS GLOBAIS ---------------
+// ========================================================
+// OBJETOS GLOBAIS
+// ========================================================
 WiFiClientSecure secureClient;
 PubSubClient mqttClient(secureClient);
 
-// ------------------------ ESTADOS DO SISTEMA ------------
-bool alertaLatched = false;
+// ========================================================
+// ESTADOS DO SISTEMA (PROTEGIDOS POR MUTEX)
+// ========================================================
+volatile bool alertaLatched = false;
+volatile unsigned long alertActivatedSince = 0;
+volatile bool smsSentForThisAlert = false;
+volatile bool alarmePausado = false;
+volatile float distanciaAtual = -1.0;
 
-unsigned long alertActivatedSince = 0;
-bool smsSentForThisAlert = false;
-
+// Controle do botão
 int clickCount = 0;
-bool alarmePausado = false;
 unsigned long lastClickTime = 0;
 const unsigned long CLICK_TIMEOUT = 1000;
 
-unsigned long lastBlinkTime = 0;
-bool blinkState = false;
-const unsigned long BLINK_INTERVAL = 100;
-
-// Limite de disparo em cm (ex.: menos que 30 cm aciona alerta)
+// Limite de disparo em cm
 const float DISTANCIA_LIMITE_CM = 30.0;
+
+// ========================================================
+// PRIORIDADES DAS TAREFAS FREERTOS
+// ========================================================
+// Prioridade maior = número maior (0 a configMAX_PRIORITIES-1)
+#define PRIORIDADE_ALTA    5
+#define PRIORIDADE_NORMAL  3
+#define PRIORIDADE_BAIXA   1
+
+// Stack sizes (tamanho da pilha para cada tarefa em words)
+#define STACK_SIZE_PEQUENO  2048
+#define STACK_SIZE_MEDIO    4096
+#define STACK_SIZE_GRANDE   8192
 
 // ========================================================
 // FUNÇÕES DE HARDWARE
@@ -109,13 +144,12 @@ void beepTriple() {
 
     for (int i = 0; i < 3; ++i) {
         ledcWrite(BUZZER_CHANNEL, level);
-        delay(beepMs);
+        vTaskDelay(pdMS_TO_TICKS(beepMs));  // FreeRTOS delay
         ledcWrite(BUZZER_CHANNEL, 0);
-        if (i < 2) delay(gapMs);
+        if (i < 2) vTaskDelay(pdMS_TO_TICKS(gapMs));
     }
 }
 
-// --- Helpers para LEDs RGB da sala e quarto (0–255) ---
 void setSalaColor(uint8_t r, uint8_t g, uint8_t b) {
     ledcWrite(LED_SALA_R_CH, r);
     ledcWrite(LED_SALA_G_CH, g);
@@ -161,12 +195,11 @@ void conectarWiFi() {
 
     while (WiFi.status() != WL_CONNECTED) {
         Serial.print(".");
-        delay(500);
+        vTaskDelay(pdMS_TO_TICKS(500));  // FreeRTOS delay
     }
 
     Serial.println("\nWiFi conectado!");
     
-    // Aguardar atribuição de IPv6
     Serial.print("Aguardando IPv6... ");
     int tentativas = 0;
     IPv6Address ipv6;
@@ -180,7 +213,7 @@ void conectarWiFi() {
             return;
         }
         Serial.print(".");
-        delay(1000);
+        vTaskDelay(pdMS_TO_TICKS(1000));
         tentativas++;
     }
     
@@ -190,8 +223,6 @@ void conectarWiFi() {
 // ========================================================
 // MQTT
 // ========================================================
-
-// Conectar ao MQTT usando IPv6
 void conectarMQTT() {
     while (!mqttClient.connected()) {
         Serial.print("Conectando ao MQTT via IPv6... ");
@@ -199,12 +230,10 @@ void conectarMQTT() {
         String clientId = "ESP32-Guardian-";
         clientId += String(random(0xffff), HEX);
 
-        // Obter IPv6 local
         IPv6Address ipv6Local = WiFi.localIPv6();
         Serial.print("IPv6 Local: ");
         Serial.println(ipv6Local.toString());
         
-        // Configurar MQTT para usar IPv6
         mqttClient.setServer(MQTT_HOST, MQTT_PORT);
         
         if (mqttClient.connect(clientId.c_str(), MQTT_USER, MQTT_PASS)) {
@@ -215,12 +244,11 @@ void conectarMQTT() {
         } else {
             Serial.print("Falhou. rc=");
             Serial.println(mqttClient.state());
-            delay(3000);
+            vTaskDelay(pdMS_TO_TICKS(3000));
         }
     }
 }
 
-// Parse "R,G,B" -> uint8_t r,g,b
 bool parseRGB(const String& msg, uint8_t &r, uint8_t &g, uint8_t &b) {
     int c1 = msg.indexOf(',');
     int c2 = msg.indexOf(',', c1 + 1);
@@ -258,28 +286,33 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 
     String t = String(topic);
 
-    if (t == TOPICO_CMD) {
-        if (msg == "STOP") {
-            alertaLatched = false;
-            alarmePausado = false;
-            desligarAlerta();
-            mqttClient.publish(TOPICO_ESTADO, "OK");
-            Serial.println("Alarme parado via MQTT (STOP).");
-        } else if (msg == "PAUSE") {
-            alarmePausado = true;
-            alertaLatched = false;
-            beepTriple();
-            mostrarAlarmePausado();
-            mqttClient.publish(TOPICO_ESTADO, "PAUSADO");
-            Serial.println("Alarme PAUSADO via MQTT.");
-        } else if (msg == "RESUME") {
-            alarmePausado = false;
-            beepTriple();
-            mqttClient.publish(TOPICO_ESTADO, "OK");
-            Serial.println("Alarme RETOMADO via MQTT.");
+    // Proteger acesso às variáveis compartilhadas
+    if (xSemaphoreTake(mutexEstado, pdMS_TO_TICKS(1000)) == pdTRUE) {
+        if (t == TOPICO_CMD) {
+            if (msg == "STOP") {
+                alertaLatched = false;
+                alarmePausado = false;
+                desligarAlerta();
+                mqttClient.publish(TOPICO_ESTADO, "OK");
+                Serial.println("Alarme parado via MQTT (STOP).");
+            } else if (msg == "PAUSE") {
+                alarmePausado = true;
+                alertaLatched = false;
+                beepTriple();
+                mostrarAlarmePausado();
+                mqttClient.publish(TOPICO_ESTADO, "PAUSADO");
+                Serial.println("Alarme PAUSADO via MQTT.");
+            } else if (msg == "RESUME") {
+                alarmePausado = false;
+                beepTriple();
+                mqttClient.publish(TOPICO_ESTADO, "OK");
+                Serial.println("Alarme RETOMADO via MQTT.");
+            }
         }
+        xSemaphoreGive(mutexEstado);
     }
-    else if (t == TOPICO_LED_SALA) {
+    
+    if (t == TOPICO_LED_SALA) {
         uint8_t r, g, b;
         if (parseRGB(msg, r, g, b)) {
             setSalaColor(r, g, b);
@@ -300,25 +333,313 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 }
 
 // ========================================================
+// TAREFA 1: LEITURA DO SENSOR ULTRASSÔNICO
+// ========================================================
+// Esta tarefa é responsável por ler o sensor e atualizar
+// o estado do alarme baseado na distância medida
+void taskSensorUltrassonico(void *parameter) {
+    Serial.println("[FreeRTOS] Task Sensor Ultrassônico iniciada");
+    
+    const TickType_t periodo = pdMS_TO_TICKS(300); // Executa a cada 300ms
+    
+    for (;;) {  // Loop infinito da tarefa
+        // Ler distância
+        float distancia = medirDistanciaCm();
+        
+        // Atualizar distância compartilhada (com proteção)
+        if (xSemaphoreTake(mutexDistancia, pdMS_TO_TICKS(100)) == pdTRUE) {
+            distanciaAtual = distancia;
+            xSemaphoreGive(mutexDistancia);
+        }
+        
+        // Exibir leitura no Serial
+        Serial.print("[Sensor] Distância: ");
+        if (distancia < 0) {
+            Serial.println("sem leitura (fora de alcance)");
+        } else {
+            Serial.print(distancia);
+            Serial.println(" cm");
+        }
+        
+        // Verificar se deve ativar alerta (com proteção do mutex)
+        if (xSemaphoreTake(mutexEstado, pdMS_TO_TICKS(100)) == pdTRUE) {
+            bool pausado = alarmePausado;
+            bool alerta = alertaLatched;
+            
+            if (!pausado && !alerta) {
+                // Verificar se objeto muito próximo
+                if (distancia > 0 && distancia <= DISTANCIA_LIMITE_CM) {
+                    alertaLatched = true;
+                    ligarAlerta();
+                    mqttClient.publish(TOPICO_ESTADO, "ALERTA");
+                    Serial.println("[Sensor] Alerta ativado por distância!");
+                    
+                    // Atualizar timestamp de ativação
+                    alertActivatedSince = xTaskGetTickCount() * portTICK_PERIOD_MS;
+                    smsSentForThisAlert = false;
+                } else {
+                    desligarAlerta();
+                    mqttClient.publish(TOPICO_ESTADO, "OK");
+                }
+            }
+            
+            xSemaphoreGive(mutexEstado);
+        }
+        
+        // Publicar medida no MQTT
+        if (mqttClient.connected()) {
+            char msg[16];
+            if (distancia < 0) {
+                snprintf(msg, sizeof(msg), "NA");
+            } else {
+                snprintf(msg, sizeof(msg), "%.1f", distancia);
+            }
+            mqttClient.publish(TOPICO_SENSOR, msg);
+        }
+        
+        // Aguardar próximo ciclo (FreeRTOS delay - não bloqueia outras tarefas)
+        vTaskDelay(periodo);
+    }
+}
+
+// ========================================================
+// TAREFA 2: LEITURA DO BOTÃO
+// ========================================================
+// Esta tarefa monitora o botão e detecta cliques simples
+// e múltiplos cliques para controlar o alarme
+void taskBotao(void *parameter) {
+    Serial.println("[FreeRTOS] Task Botão iniciada");
+    
+    const TickType_t periodo = pdMS_TO_TICKS(50); // Verifica a cada 50ms
+    
+    for (;;) {
+        int leituraBotao = digitalRead(BUTTON_PIN);
+        unsigned long tempoAtual = xTaskGetTickCount() * portTICK_PERIOD_MS;
+        
+        if (leituraBotao == HIGH) {
+            // Proteger acesso às variáveis compartilhadas
+            if (xSemaphoreTake(mutexEstado, pdMS_TO_TICKS(100)) == pdTRUE) {
+                bool pausado = alarmePausado;
+                
+                if (tempoAtual - lastClickTime > CLICK_TIMEOUT) {
+                    clickCount = 1;
+                    lastClickTime = tempoAtual;
+                    
+                    if (!pausado) {
+                        alertaLatched = false;
+                        desligarAlerta();
+                        if (mqttClient.connected()) {
+                            mqttClient.publish(TOPICO_ESTADO, "OK");
+                        }
+                        Serial.println("[Botão] Alarme parado por um clique");
+                    }
+                } else {
+                    clickCount++;
+                    lastClickTime = tempoAtual;
+                    
+                    Serial.print("[Botão] Cliques rápidos: ");
+                    Serial.println(clickCount);
+                    
+                    if (clickCount >= 10) {
+                        alarmePausado = !alarmePausado;
+                        clickCount = 0;
+                        
+                        if (alarmePausado) {
+                            Serial.println("[Botão] Alarme PAUSADO");
+                            alertaLatched = false;
+                            beepTriple();
+                            mostrarAlarmePausado();
+                            if (mqttClient.connected()) {
+                                mqttClient.publish(TOPICO_ESTADO, "PAUSADO");
+                            }
+                        } else {
+                            Serial.println("[Botão] Alarme RETOMADO");
+                            beepTriple();
+                            if (mqttClient.connected()) {
+                                mqttClient.publish(TOPICO_ESTADO, "OK");
+                            }
+                        }
+                    }
+                }
+                
+                xSemaphoreGive(mutexEstado);
+            }
+        }
+        
+        // Reset contador de cliques após timeout
+        if (tempoAtual - lastClickTime > CLICK_TIMEOUT * 2 && clickCount > 0) {
+            clickCount = 0;
+        }
+        
+        vTaskDelay(periodo);
+    }
+}
+
+// ========================================================
+// TAREFA 3: COMUNICAÇÃO MQTT
+// ========================================================
+// Esta tarefa mantém a conexão MQTT ativa e processa
+// mensagens recebidas
+void taskMQTT(void *parameter) {
+    Serial.println("[FreeRTOS] Task MQTT iniciada");
+    
+    // Conectar inicialmente
+    conectarMQTT();
+    
+    const TickType_t periodo = pdMS_TO_TICKS(100); // Loop MQTT a cada 100ms
+    
+    for (;;) {
+        // Reconectar se necessário
+        if (!mqttClient.connected()) {
+            conectarMQTT();
+        }
+        
+        // Processar mensagens MQTT
+        mqttClient.loop();
+        
+        vTaskDelay(periodo);
+    }
+}
+
+// ========================================================
+// TAREFA 4: CONTROLE DE LED E BUZZER (BLINK)
+// ========================================================
+// Esta tarefa controla o piscar do LED vermelho e
+// o som do buzzer quando o alerta está ativo
+void taskLedBuzzer(void *parameter) {
+    Serial.println("[FreeRTOS] Task LED/Buzzer iniciada");
+    
+    const TickType_t periodoBlink = pdMS_TO_TICKS(100); // Blink a cada 100ms
+    TickType_t ultimoBlink = 0;
+    bool blinkState = false;
+    
+    for (;;) {
+        TickType_t tempoAtual = xTaskGetTickCount();
+        
+        // Proteger acesso ao estado
+        if (xSemaphoreTake(mutexEstado, pdMS_TO_TICKS(100)) == pdTRUE) {
+            bool pausado = alarmePausado;
+            bool alerta = alertaLatched;
+            
+            if (pausado) {
+                mostrarAlarmePausado();
+                blinkState = false;
+            } else if (alerta) {
+                // Piscar LED vermelho durante alerta
+                if (tempoAtual - ultimoBlink >= pdMS_TO_TICKS(100)) {
+                    blinkState = !blinkState;
+                    digitalWrite(LED_RED, blinkState ? HIGH : LOW);
+                    digitalWrite(LED_GREEN, LOW);
+                    digitalWrite(LED_BLUE, LOW);
+                    ultimoBlink = tempoAtual;
+                }
+                // Manter buzzer ativo
+                ledcWrite(BUZZER_CHANNEL, 128);
+                
+                // Publicar estado de alerta periodicamente
+                if (mqttClient.connected()) {
+                    mqttClient.publish(TOPICO_ESTADO, "ALERTA");
+                }
+            } else {
+                desligarAlerta();
+                blinkState = false;
+            }
+            
+            xSemaphoreGive(mutexEstado);
+        }
+        
+        vTaskDelay(pdMS_TO_TICKS(50)); // Verifica a cada 50ms
+    }
+}
+
+// ========================================================
+// TAREFA 5: ENVIO DE SMS
+// ========================================================
+// Esta tarefa monitora o estado do alerta e envia SMS
+// via Twilio após 10 segundos de alerta ativo
+void taskSMS(void *parameter) {
+    Serial.println("[FreeRTOS] Task SMS iniciada");
+    
+    const TickType_t periodo = pdMS_TO_TICKS(2000); // Verifica a cada 2 segundos
+    
+    for (;;) {
+        // Verificar se deve enviar SMS
+        if (xSemaphoreTake(mutexEstado, pdMS_TO_TICKS(100)) == pdTRUE) {
+            bool alerta = alertaLatched;
+            bool pausado = alarmePausado;
+            bool smsEnviado = smsSentForThisAlert;
+            unsigned long ativadoDesde = alertActivatedSince;
+            
+            if (alerta && !pausado && !smsEnviado) {
+                unsigned long tempoAtual = xTaskGetTickCount() * portTICK_PERIOD_MS;
+                
+                // Verificar se passaram 10 segundos desde a ativação
+                if (tempoAtual - ativadoDesde >= 10000) {
+                    // Enviar SMS em uma nova tarefa ou diretamente aqui
+                    // Por simplicidade, vamos enviar aqui
+                    xSemaphoreGive(mutexEstado); // Liberar antes de operação bloqueante
+                    
+                    WiFiClientSecure tlsClient;
+                    tlsClient.setInsecure();
+                    HTTPClient http;
+                    
+                    String url = String("https://api.twilio.com/2010-04-01/Accounts/") + 
+                                 TWILIO_ACCOUNT_SID + "/Messages.json";
+                    
+                    http.begin(tlsClient, url);
+                    http.setAuthorization(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+                    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+                    
+                    String body = "To=" + String(ALERT_SMS_TO_NUMBER)
+                                + "&From=" + String(TWILIO_FROM_NUMBER)
+                                + "&Body=" + String("Alerta ativado no Guardian (ultrassonico)!");
+                    
+                    int code = http.POST(body);
+                    if (code > 0) {
+                        Serial.print("[SMS] SMS enviado via IPv6, HTTP code: ");
+                        Serial.println(code);
+                        
+                        // Marcar SMS como enviado
+                        if (xSemaphoreTake(mutexEstado, pdMS_TO_TICKS(1000)) == pdTRUE) {
+                            smsSentForThisAlert = true;
+                            xSemaphoreGive(mutexEstado);
+                        }
+                    } else {
+                        Serial.print("[SMS] Falha ao enviar SMS: ");
+                        Serial.println(code);
+                    }
+                    http.end();
+                } else {
+                    xSemaphoreGive(mutexEstado);
+                }
+            } else {
+                xSemaphoreGive(mutexEstado);
+            }
+        }
+        
+        vTaskDelay(periodo);
+    }
+}
+
+// ========================================================
 // SETUP
 // ========================================================
 void setup() {
     Serial.begin(115200);
     delay(1500);
+    
+    Serial.println("\n===========================================");
+    Serial.println("  SISTEMA HOME ALARM COM FreeRTOS");
+    Serial.println("===========================================\n");
 
-    // Pinos do LED RGB principal
+    // Configuração de pinos
     pinMode(LED_RED, OUTPUT);
     pinMode(LED_GREEN, OUTPUT);
     pinMode(LED_BLUE, OUTPUT);
-
-    // Botão
     pinMode(BUTTON_PIN, INPUT);
-
-    // Ultrassônico
     pinMode(TRIG_PIN, OUTPUT);
     pinMode(ECHO_PIN, INPUT);
-
-    // LEDS RGB sala e quarto
+    
     pinMode(LED_SALA_R, OUTPUT);
     pinMode(LED_SALA_G, OUTPUT);
     pinMode(LED_SALA_B, OUTPUT);
@@ -326,12 +647,12 @@ void setup() {
     pinMode(LED_QUARTO_G, OUTPUT);
     pinMode(LED_QUARTO_B, OUTPUT);
 
-    // PWM do buzzer
+    // Configuração PWM do buzzer
     ledcSetup(BUZZER_CHANNEL, BUZZER_FREQ, BUZZER_RES);
     ledcAttachPin(BUZZER_PIN, BUZZER_CHANNEL);
     ledcWrite(BUZZER_CHANNEL, 0);
 
-    // PWM LEDs sala
+    // Configuração PWM LEDs sala
     ledcSetup(LED_SALA_R_CH, LED_PWM_FREQ, LED_PWM_RES);
     ledcSetup(LED_SALA_G_CH, LED_PWM_FREQ, LED_PWM_RES);
     ledcSetup(LED_SALA_B_CH, LED_PWM_FREQ, LED_PWM_RES);
@@ -340,7 +661,7 @@ void setup() {
     ledcAttachPin(LED_SALA_B, LED_SALA_B_CH);
     setSalaColor(0, 0, 0);
 
-    // PWM LEDs quarto
+    // Configuração PWM LEDs quarto
     ledcSetup(LED_QUARTO_R_CH, LED_PWM_FREQ, LED_PWM_RES);
     ledcSetup(LED_QUARTO_G_CH, LED_PWM_FREQ, LED_PWM_RES);
     ledcSetup(LED_QUARTO_B_CH, LED_PWM_FREQ, LED_PWM_RES);
@@ -352,142 +673,121 @@ void setup() {
     // TLS sem verificação de certificado (didático)
     secureClient.setInsecure();
 
+    // Conectar WiFi (antes de criar tarefas que precisam de rede)
     conectarWiFi();
     mqttClient.setServer(MQTT_HOST, MQTT_PORT);
     mqttClient.setCallback(mqttCallback);
 
-    Serial.println("Sistema Home Alarm iniciado com sensor ultrassônico e LEDs RGB!");
+    // ========================================================
+    // INICIALIZAR FREERTOS - CRIAÇÃO DE MUTEXES
+    // ========================================================
+    Serial.println("\n[FreeRTOS] Criando recursos de sincronização...");
+    
+    mutexEstado = xSemaphoreCreateMutex();
+    mutexDistancia = xSemaphoreCreateMutex();
+    
+    if (mutexEstado == NULL || mutexDistancia == NULL) {
+        Serial.println("[FreeRTOS] ERRO: Falha ao criar mutexes!");
+        while(1) delay(1000); // Travar se falhar
+    }
+    
+    Serial.println("[FreeRTOS] Mutexes criados com sucesso!");
+
+    // ========================================================
+    // CRIAR TAREFAS DO FREERTOS
+    // ========================================================
+    Serial.println("\n[FreeRTOS] Criando tarefas...");
+    
+    // Task 1: Sensor Ultrassônico (prioridade normal)
+    xTaskCreate(
+        taskSensorUltrassonico,      // Função da tarefa
+        "TaskSensor",                // Nome da tarefa (para debug)
+        STACK_SIZE_MEDIO,            // Tamanho da pilha
+        NULL,                        // Parâmetros
+        PRIORIDADE_NORMAL,           // Prioridade
+        NULL                         // Handle da tarefa (opcional)
+    );
+    
+    // Task 2: Botão (prioridade normal)
+    xTaskCreate(
+        taskBotao,
+        "TaskBotao",
+        STACK_SIZE_PEQUENO,
+        NULL,
+        PRIORIDADE_NORMAL,
+        NULL
+    );
+    
+    // Task 3: MQTT (prioridade normal)
+    xTaskCreate(
+        taskMQTT,
+        "TaskMQTT",
+        STACK_SIZE_GRANDE,  // MQTT precisa de mais stack
+        NULL,
+        PRIORIDADE_NORMAL,
+        NULL
+    );
+    
+    // Task 4: LED/Buzzer (prioridade normal)
+    xTaskCreate(
+        taskLedBuzzer,
+        "TaskLED",
+        STACK_SIZE_PEQUENO,
+        NULL,
+        PRIORIDADE_NORMAL,
+        NULL
+    );
+    
+    // Task 5: SMS (prioridade baixa - não crítico)
+    xTaskCreate(
+        taskSMS,
+        "TaskSMS",
+        STACK_SIZE_GRANDE,  // HTTP precisa de mais stack
+        NULL,
+        PRIORIDADE_BAIXA,
+        NULL
+    );
+    
+    Serial.println("[FreeRTOS] Todas as tarefas criadas!");
+    Serial.println("\n===========================================");
+    Serial.println("  Sistema iniciado com FreeRTOS!");
+    Serial.println("===========================================\n");
+    
+    // Estado inicial
+    desligarAlerta();
 }
 
 // ========================================================
 // LOOP PRINCIPAL
 // ========================================================
+// Com FreeRTOS, o loop() pode ser usado para outras
+// tarefas de baixa prioridade ou ficar vazio
 void loop() {
-    if (!mqttClient.connected()) {
-        conectarMQTT();
-    }
-    mqttClient.loop();
-
-    // --- Leitura do sensor ultrassônico ---
-    float distancia = medirDistanciaCm();
-    Serial.print("Distância: ");
-    if (distancia < 0) {
-        Serial.println("sem leitura (fora de alcance)");
-    } else {
-        Serial.print(distancia);
-        Serial.println(" cm");
-    }
-
-    // --- Leitura do botão ---
-    int leituraBotao = digitalRead(BUTTON_PIN);
-
-    if (leituraBotao == HIGH) {
-        if (millis() - lastClickTime > CLICK_TIMEOUT) {
-            clickCount = 1;
-            lastClickTime = millis();
-            if (!alarmePausado) {
-                alertaLatched = false;
-                desligarAlerta();
-                mqttClient.publish(TOPICO_ESTADO, "OK");
-                Serial.println("Alarme parado por um clique");
-            }
-        } else {
-            clickCount++;
-            lastClickTime = millis();
-
-            Serial.print("Cliques rápidos: ");
-            Serial.println(clickCount);
-
-            if (clickCount >= 6) {
-                alarmePausado = !alarmePausado;
-                clickCount = 0;
-
-                if (alarmePausado) {
-                    Serial.println("Alarme PAUSADO");
-                    alertaLatched = false;
-                    beepTriple();
-                    mostrarAlarmePausado();
-                    mqttClient.publish(TOPICO_ESTADO, "PAUSADO");
-                } else {
-                    Serial.println("Alarme RETOMADO");
-                    beepTriple();
-                    mqttClient.publish(TOPICO_ESTADO, "OK");
-                }
-            }
+    // O FreeRTOS está rodando as tarefas em background
+    // Aqui podemos colocar código de baixa prioridade
+    // ou apenas deixar vazio
+    
+    // Mostrar informações de debug periodicamente
+    static unsigned long ultimoDebug = 0;
+    unsigned long agora = millis();
+    
+    if (agora - ultimoDebug > 30000) {  // A cada 30 segundos
+        ultimoDebug = agora;
+        
+        Serial.println("\n[Debug] Status do sistema:");
+        Serial.print("  Heap livre: ");
+        Serial.print(ESP.getFreeHeap());
+        Serial.println(" bytes");
+        Serial.print("  Tarefas ativas: ");
+        Serial.println(uxTaskGetNumberOfTasks());
+        
+        if (xSemaphoreTake(mutexEstado, pdMS_TO_TICKS(500)) == pdTRUE) {
+            Serial.print("  Estado alarme: ");
+            Serial.println(alarmePausado ? "PAUSADO" : (alertaLatched ? "ALERTA" : "OK"));
+            xSemaphoreGive(mutexEstado);
         }
     }
-
-    if (millis() - lastClickTime > CLICK_TIMEOUT * 2 && clickCount > 0) {
-        clickCount = 0;
-    }
-
-    // --- Lógica de estados ---
-    if (alarmePausado) {
-        mostrarAlarmePausado();
-    } else if (alertaLatched) {
-        if (millis() - lastBlinkTime > BLINK_INTERVAL) {
-            lastBlinkTime = millis();
-            blinkState = !blinkState;
-            digitalWrite(LED_RED, blinkState ? HIGH : LOW);
-            digitalWrite(LED_GREEN, LOW);
-            digitalWrite(LED_BLUE, LOW);
-        }
-        ledcWrite(BUZZER_CHANNEL, 128);
-        mqttClient.publish(TOPICO_ESTADO, "ALERTA");
-    } else {
-        if (distancia > 0 && distancia <= DISTANCIA_LIMITE_CM) {
-            alertaLatched = true;
-            ligarAlerta();
-            mqttClient.publish(TOPICO_ESTADO, "ALERTA");
-            Serial.println("Alerta ativado e latched por distância!");
-            alertActivatedSince = millis();
-            smsSentForThisAlert = false;
-        } else {
-            desligarAlerta();
-            mqttClient.publish(TOPICO_ESTADO, "OK");
-        }
-    }
-
-    // --- SMS via Twilio após X ms de alerta ativo (via IPv6) ---
-    if (alertaLatched && !smsSentForThisAlert && !alarmePausado) {
-        if (millis() - alertActivatedSince >= 10000) {  // 10 segundos
-            WiFiClientSecure tlsClient;
-            tlsClient.setInsecure();
-            HTTPClient http;
-            
-            String url = String("https://api.twilio.com/2010-04-01/Accounts/") + TWILIO_ACCOUNT_SID + "/Messages.json";
-            
-            // Usar IPv6 local para conectar
-            IPv6Address ipv6Local = WiFi.localIPv6();
-            http.begin(tlsClient, url);
-            http.setAuthorization(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
-            http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-
-            String body = "To=" + String(ALERT_SMS_TO_NUMBER)
-                        + "&From=" + String(TWILIO_FROM_NUMBER)
-                        + "&Body=" + String("Alerta ativado no Guardian (ultrassonico)!");
-
-            int code = http.POST(body);
-            if (code > 0) {
-                Serial.print("SMS enviado via IPv6, HTTP code: ");
-                Serial.println(code);
-                smsSentForThisAlert = true;
-            } else {
-                Serial.print("Falha ao enviar SMS: ");
-                Serial.println(code);
-            }
-            http.end();
-        }
-    }
-
-    // --- Publicação da medida no MQTT ---
-    char msg[16];
-    if (distancia < 0) {
-        snprintf(msg, sizeof(msg), "NA");
-    } else {
-        snprintf(msg, sizeof(msg), "%.1f", distancia);
-    }
-    mqttClient.publish(TOPICO_SENSOR, msg);
-
-    delay(300);
+    
+    // Delay não bloqueante para não consumir CPU
+    vTaskDelay(pdMS_TO_TICKS(1000));
 }
