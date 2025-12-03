@@ -2,7 +2,6 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
-#include <HTTPClient.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -87,8 +86,6 @@ PubSubClient mqttClient(secureClient);
 // ESTADOS DO SISTEMA (PROTEGIDOS POR MUTEX)
 // ========================================================
 volatile bool alertaLatched = false;
-volatile unsigned long alertActivatedSince = 0;
-volatile bool smsSentForThisAlert = false;
 volatile bool alarmePausado = false;
 volatile float distanciaAtual = -1.0;
 
@@ -373,10 +370,6 @@ void taskSensorUltrassonico(void *parameter) {
                     ligarAlerta();
                     mqttClient.publish(TOPICO_ESTADO, "ALERTA");
                     Serial.println("[Sensor] Alerta ativado por distância!");
-                    
-                    // Atualizar timestamp de ativação
-                    alertActivatedSince = xTaskGetTickCount() * portTICK_PERIOD_MS;
-                    smsSentForThisAlert = false;
                 } else {
                     desligarAlerta();
                     mqttClient.publish(TOPICO_ESTADO, "OK");
@@ -553,75 +546,6 @@ void taskLedBuzzer(void *parameter) {
 }
 
 // ========================================================
-// TAREFA 5: ENVIO DE SMS
-// ========================================================
-// Esta tarefa monitora o estado do alerta e envia SMS
-// via Twilio após 10 segundos de alerta ativo
-void taskSMS(void *parameter) {
-    Serial.println("[FreeRTOS] Task SMS iniciada");
-    
-    const TickType_t periodo = pdMS_TO_TICKS(2000); // Verifica a cada 2 segundos
-    
-    for (;;) {
-        // Verificar se deve enviar SMS
-        if (xSemaphoreTake(mutexEstado, pdMS_TO_TICKS(100)) == pdTRUE) {
-            bool alerta = alertaLatched;
-            bool pausado = alarmePausado;
-            bool smsEnviado = smsSentForThisAlert;
-            unsigned long ativadoDesde = alertActivatedSince;
-            
-            if (alerta && !pausado && !smsEnviado) {
-                unsigned long tempoAtual = xTaskGetTickCount() * portTICK_PERIOD_MS;
-                
-                // Verificar se passaram 10 segundos desde a ativação
-                if (tempoAtual - ativadoDesde >= 10000) {
-                    // Enviar SMS em uma nova tarefa ou diretamente aqui
-                    // Por simplicidade, vamos enviar aqui
-                    xSemaphoreGive(mutexEstado); // Liberar antes de operação bloqueante
-                    
-                    WiFiClientSecure tlsClient;
-                    tlsClient.setInsecure();
-                    HTTPClient http;
-                    
-                    String url = String("https://api.twilio.com/2010-04-01/Accounts/") + 
-                                 TWILIO_ACCOUNT_SID + "/Messages.json";
-                    
-                    http.begin(tlsClient, url);
-                    http.setAuthorization(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
-                    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-                    
-                    String body = "To=" + String(ALERT_SMS_TO_NUMBER)
-                                + "&From=" + String(TWILIO_FROM_NUMBER)
-                                + "&Body=" + String("Alerta ativado no Guardian (ultrassonico)!");
-                    
-                    int code = http.POST(body);
-                    if (code > 0) {
-                        Serial.print("[SMS] SMS enviado via IPv6, HTTP code: ");
-                        Serial.println(code);
-                        
-                        // Marcar SMS como enviado
-                        if (xSemaphoreTake(mutexEstado, pdMS_TO_TICKS(1000)) == pdTRUE) {
-                            smsSentForThisAlert = true;
-                            xSemaphoreGive(mutexEstado);
-                        }
-                    } else {
-                        Serial.print("[SMS] Falha ao enviar SMS: ");
-                        Serial.println(code);
-                    }
-                    http.end();
-                } else {
-                    xSemaphoreGive(mutexEstado);
-                }
-            } else {
-                xSemaphoreGive(mutexEstado);
-            }
-        }
-        
-        vTaskDelay(periodo);
-    }
-}
-
-// ========================================================
 // SETUP
 // ========================================================
 void setup() {
@@ -738,19 +662,13 @@ void setup() {
         NULL
     );
     
-    // Task 5: SMS (prioridade baixa - não crítico)
-    xTaskCreate(
-        taskSMS,
-        "TaskSMS",
-        STACK_SIZE_GRANDE,  // HTTP precisa de mais stack
-        NULL,
-        PRIORIDADE_BAIXA,
-        NULL
-    );
-    
-    Serial.println("[FreeRTOS] Todas as tarefas criadas!");
+    Serial.println("Todas as tarefas criadas!");
+    Serial.println("  - Task Sensor Ultrassônico");
+    Serial.println("  - Task Botão");
+    Serial.println("  - Task MQTT");
+    Serial.println("  - Task LED/Buzzer");
     Serial.println("\n===========================================");
-    Serial.println("  Sistema iniciado com FreeRTOS!");
+    Serial.println("  Sistema iniciado!");
     Serial.println("===========================================\n");
     
     // Estado inicial

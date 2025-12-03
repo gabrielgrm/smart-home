@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import mqtt, { MqttClient } from "mqtt";
 import Link from "next/link";
 
@@ -19,6 +19,12 @@ export default function AlarmePage() {
   const [connected, setConnected] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const clientRef = useRef<MqttClient | null>(null);
+  
+  // Controle de SMS de alerta após 2 minutos
+  const alertStartTimeRef = useRef<number | null>(null);
+  const smsSentRef = useRef<boolean>(false);
+  const estadoAnteriorRef = useRef<string>("--");
+  const SMS_TIMEOUT_MS = 30 * 1000;
 
   // conecta no MQTT
   useEffect(() => {
@@ -46,8 +52,27 @@ export default function AlarmePage() {
       if (topic === TOPICO_LDR) {
         setLdr(msg);
       } else if (topic === TOPICO_ESTADO) {
-        setEstado(msg);
-        setIsPaused(msg === "PAUSADO");
+        const novoEstado = msg;
+        const estadoAnterior = estadoAnteriorRef.current;
+        
+        setEstado(novoEstado);
+        setIsPaused(novoEstado === "PAUSADO");
+        
+        // Controle de SMS após 2 minutos de alerta
+        if (novoEstado === "ALERTA" && estadoAnterior !== "ALERTA") {
+          // Alerta acabou de começar
+          alertStartTimeRef.current = Date.now();
+          smsSentRef.current = false;
+          console.log('[SMS] Alerta iniciado, contando 2 minutos...');
+        } else if (novoEstado !== "ALERTA" && estadoAnterior === "ALERTA") {
+          // Alerta parou, resetar contador
+          alertStartTimeRef.current = null;
+          smsSentRef.current = false;
+          console.log('[SMS] Alerta parado, contador resetado');
+        }
+        
+        // Atualizar estado anterior
+        estadoAnteriorRef.current = novoEstado;
       }
     });
 
@@ -72,6 +97,62 @@ export default function AlarmePage() {
     const novoEstadoPause = !isPaused;
     publishCommand(novoEstadoPause ? "PAUSE" : "RESUME");
   }
+
+  // Função para enviar SMS de alerta
+  const enviarSMSAlerta = useCallback(async () => {
+    if (smsSentRef.current) return; // Já enviou SMS para este alerta
+    
+    try {
+      const response = await fetch('/api/alerta/sms', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: '🚨 ALERTA: O alarme foi ativado e está soando há mais de 2 minutos! Verifique imediatamente. 🚨'
+        }),
+      });
+
+      const data = await response.json();
+      
+      if (response.ok && data.success) {
+        console.log('[SMS] SMS de alerta enviado com sucesso:', data.sid);
+        smsSentRef.current = true; // Marcar como enviado
+      } else {
+        console.error('[SMS] Erro ao enviar SMS:', data.error);
+      }
+    } catch (error) {
+      console.error('[SMS] Erro ao conectar com API:', error);
+    }
+  }, []);
+
+  // Monitorar tempo de alerta e enviar SMS após 2 minutos
+  useEffect(() => {
+    if (estado !== "ALERTA" || isPaused) {
+      return; // Não está em alerta ou está pausado
+    }
+
+    if (!alertStartTimeRef.current) {
+      alertStartTimeRef.current = Date.now();
+      smsSentRef.current = false;
+      return;
+    }
+
+    const intervalo = setInterval(() => {
+      if (!alertStartTimeRef.current || smsSentRef.current) return;
+      
+      const tempoDecorrido = Date.now() - alertStartTimeRef.current;
+      
+      if (tempoDecorrido >= SMS_TIMEOUT_MS) {
+        console.log('[SMS] Alerta ativo há mais de 2 minutos, enviando SMS...');
+        enviarSMSAlerta();
+      }
+    }, 1000); // Verificar a cada 1 segundo
+
+    return () => {
+      clearInterval(intervalo);
+    };
+  }, [estado, isPaused, enviarSMSAlerta]);
 
   const isAlert = estado === "ALERTA";
   const isOk = estado === "OK";
