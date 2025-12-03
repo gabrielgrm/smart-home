@@ -165,13 +165,60 @@ void conectarWiFi() {
     }
 
     Serial.println("\nWiFi conectado!");
-    Serial.print("IP: ");
-    Serial.println(WiFi.localIP());
+    
+    // Aguardar atribuição de IPv6
+    Serial.print("Aguardando IPv6... ");
+    int tentativas = 0;
+    IPv6Address ipv6;
+    while (tentativas < 30) {
+        ipv6 = WiFi.localIPv6();
+        String ipv6Str = ipv6.toString();
+        if (ipv6Str != "::" && ipv6Str != "0:0:0:0:0:0:0:0") {
+            Serial.println("\n✓ IPv6 obtido!");
+            Serial.print("IPv6: ");
+            Serial.println(ipv6Str);
+            return;
+        }
+        Serial.print(".");
+        delay(1000);
+        tentativas++;
+    }
+    
+    Serial.println("\n✗ Timeout esperando IPv6");
 }
 
 // ========================================================
 // MQTT
 // ========================================================
+
+// Conectar ao MQTT usando IPv6
+void conectarMQTT() {
+    while (!mqttClient.connected()) {
+        Serial.print("Conectando ao MQTT via IPv6... ");
+
+        String clientId = "ESP32-Guardian-";
+        clientId += String(random(0xffff), HEX);
+
+        // Obter IPv6 local
+        IPv6Address ipv6Local = WiFi.localIPv6();
+        Serial.print("IPv6 Local: ");
+        Serial.println(ipv6Local.toString());
+        
+        // Configurar MQTT para usar IPv6
+        mqttClient.setServer(MQTT_HOST, MQTT_PORT);
+        
+        if (mqttClient.connect(clientId.c_str(), MQTT_USER, MQTT_PASS)) {
+            Serial.println("Conectado ao MQTT via IPv6!");
+            mqttClient.subscribe(TOPICO_CMD);
+            mqttClient.subscribe(TOPICO_LED_SALA);
+            mqttClient.subscribe(TOPICO_LED_QUARTO);
+        } else {
+            Serial.print("Falhou. rc=");
+            Serial.println(mqttClient.state());
+            delay(3000);
+        }
+    }
+}
 
 // Parse "R,G,B" -> uint8_t r,g,b
 bool parseRGB(const String& msg, uint8_t &r, uint8_t &g, uint8_t &b) {
@@ -196,26 +243,6 @@ bool parseRGB(const String& msg, uint8_t &r, uint8_t &g, uint8_t &b) {
     b = (uint8_t)ib;
 
     return true;
-}
-
-void conectarMQTT() {
-    while (!mqttClient.connected()) {
-        Serial.print("Conectando ao MQTT... ");
-
-        String clientId = "ESP32-Guardian-";
-        clientId += String(random(0xffff), HEX);
-
-        if (mqttClient.connect(clientId.c_str(), MQTT_USER, MQTT_PASS)) {
-            Serial.println("Conectado!");
-            mqttClient.subscribe(TOPICO_CMD);
-            mqttClient.subscribe(TOPICO_LED_SALA);
-            mqttClient.subscribe(TOPICO_LED_QUARTO);
-        } else {
-            Serial.print("Falhou. rc=");
-            Serial.println(mqttClient.state());
-            delay(3000);
-        }
-    }
 }
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
@@ -421,13 +448,17 @@ void loop() {
         }
     }
 
-    // --- SMS via Twilio após X ms de alerta ativo ---
+    // --- SMS via Twilio após X ms de alerta ativo (via IPv6) ---
     if (alertaLatched && !smsSentForThisAlert && !alarmePausado) {
         if (millis() - alertActivatedSince >= 10000) {  // 10 segundos
             WiFiClientSecure tlsClient;
             tlsClient.setInsecure();
             HTTPClient http;
+            
             String url = String("https://api.twilio.com/2010-04-01/Accounts/") + TWILIO_ACCOUNT_SID + "/Messages.json";
+            
+            // Usar IPv6 local para conectar
+            IPv6Address ipv6Local = WiFi.localIPv6();
             http.begin(tlsClient, url);
             http.setAuthorization(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
             http.addHeader("Content-Type", "application/x-www-form-urlencoded");
@@ -438,7 +469,7 @@ void loop() {
 
             int code = http.POST(body);
             if (code > 0) {
-                Serial.print("SMS enviado, HTTP code: ");
+                Serial.print("SMS enviado via IPv6, HTTP code: ");
                 Serial.println(code);
                 smsSentForThisAlert = true;
             } else {
