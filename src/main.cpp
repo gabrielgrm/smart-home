@@ -70,11 +70,11 @@ QueueHandle_t filaComandos;
 // ========================================================
 // TOPICOS MQTT
 // ========================================================
-#define TOPICO_SENSOR      "projeto/guardian/sensor/medida"
-#define TOPICO_ESTADO      "projeto/guardian/sensor/estado"
-#define TOPICO_CMD         "projeto/guardian/comandos"
-#define TOPICO_LED_SALA    "projeto/guardian/led/sala"
-#define TOPICO_LED_QUARTO  "projeto/guardian/led/quarto"
+#define TOPICO_SENSOR      "projeto/smart-palafita/sensor/medida"
+#define TOPICO_ESTADO      "projeto/smart-palafita/sensor/estado"
+#define TOPICO_CMD         "projeto/smart-palafita/comandos"
+#define TOPICO_LED_SALA    "projeto/smart-palafita/led/sala"
+#define TOPICO_LED_QUARTO  "projeto/smart-palafita/led/quarto"
 
 // ========================================================
 // OBJETOS GLOBAIS
@@ -224,7 +224,7 @@ void conectarMQTT() {
     while (!mqttClient.connected()) {
         Serial.print("Conectando ao MQTT via IPv6... ");
 
-        String clientId = "ESP32-Guardian-";
+        String clientId = "ESP32-Smart-Palafita-";
         clientId += String(random(0xffff), HEX);
 
         IPv6Address ipv6Local = WiFi.localIPv6();

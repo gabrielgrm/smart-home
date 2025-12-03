@@ -9,9 +9,9 @@ const MQTT_URL =
 const MQTT_USER = "admin";
 const MQTT_PASS = "Teste@123";
 
-const TOPICO_ESTADO = "projeto/guardian/sensor/estado";
-const TOPICO_LED_SALA = "projeto/guardian/led/sala";
-const TOPICO_LED_QUARTO = "projeto/guardian/led/quarto";
+const TOPICO_ESTADO = "projeto/smart-palafita/sensor/estado";
+const TOPICO_LED_SALA = "projeto/smart-palafita/led/sala";
+const TOPICO_LED_QUARTO = "projeto/smart-palafita/led/quarto";
 
 type Comodo = "sala" | "quarto";
 
@@ -22,11 +22,6 @@ export default function LedsPage() {
   const [corSala, setCorSala] = useState<string>("#ffffff");
   const [corQuarto, setCorQuarto] = useState<string>("#ffffff");
   const clientRef = useRef<MqttClient | null>(null);
-
-  const [lookupPhone, setLookupPhone] = useState<string>("+5581998781729");
-  const [lookupResult, setLookupResult] = useState<any>(null);
-  const [lookupLoading, setLookupLoading] = useState(false);
-  const [lookupError, setLookupError] = useState<string | null>(null);
 
   // conecta no MQTT
   useEffect(() => {
@@ -264,93 +259,6 @@ export default function LedsPage() {
               Estado atual reportado pelo alarme:{" "}
               <b style={{ color: "#e5e7eb" }}>{estado}</b>
             </span>
-          </div>
-
-          <div
-            style={{
-              padding: 18,
-              borderRadius: 16,
-              background: "#020617",
-              border: "1px solid #1f2937",
-            }}
-          >
-            <div
-              style={{
-                fontSize: 14,
-                color: "#9ca3af",
-                marginBottom: 6,
-              }}
-            >
-              Validar número (Twilio Lookup)
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input
-                value={lookupPhone}
-                onChange={(e) => setLookupPhone(e.target.value)}
-                style={{
-                  padding: 8,
-                  borderRadius: 8,
-                  border: "1px solid #334155",
-                  background: "#020617",
-                  color: "#e5e7eb",
-                  flex: 1,
-                }}
-              />
-              <button
-                onClick={async () => {
-                  setLookupLoading(true);
-                  setLookupResult(null);
-                  setLookupError(null);
-                  try {
-                    const res = await fetch("/api/lookup", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ phone: lookupPhone }),
-                    });
-                    const j = await res.json();
-                    if (!res.ok) {
-                      setLookupError(j.error || "Erro na lookup");
-                    } else {
-                      setLookupResult(j.data || j);
-                    }
-                  } catch (err: any) {
-                    setLookupError(err.message || String(err));
-                  }
-                  setLookupLoading(false);
-                }}
-                style={{
-                  padding: "8px 12px",
-                  borderRadius: 8,
-                  border: "none",
-                  background: "#06b6d4",
-                  color: "#042f3a",
-                  cursor: "pointer",
-                  fontWeight: 600,
-                }}
-              >
-                {lookupLoading ? "Validando..." : "Validar"}
-              </button>
-            </div>
-            {lookupError && (
-              <div style={{ color: "#fca5a5", marginTop: 8 }}>
-                {lookupError}
-              </div>
-            )}
-            {lookupResult && (
-              <pre
-                style={{
-                  marginTop: 8,
-                  background: "#021024",
-                  padding: 10,
-                  borderRadius: 8,
-                  maxHeight: 220,
-                  overflow: "auto",
-                  color: "#cbd5e1",
-                }}
-              >
-                {JSON.stringify(lookupResult, null, 2)}
-              </pre>
-            )}
           </div>
         </div>
 

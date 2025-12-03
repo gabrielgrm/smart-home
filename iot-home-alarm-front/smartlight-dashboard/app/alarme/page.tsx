@@ -9,22 +9,21 @@ const MQTT_URL =
 const MQTT_USER = "admin";
 const MQTT_PASS = "Teste@123";
 
-const TOPICO_LDR = "projeto/guardian/sensor/ldr";
-const TOPICO_ESTADO = "projeto/guardian/sensor/estado";
-const TOPICO_CMD = "projeto/guardian/comandos";
+const TOPICO_DISTANCIA = "projeto/smart-palafita/sensor/medida";
+const TOPICO_ESTADO = "projeto/smart-palafita/sensor/estado";
+const TOPICO_CMD = "projeto/smart-palafita/comandos";
 
 export default function AlarmePage() {
-  const [ldr, setLdr] = useState<string>("--");
+  const [distancia, setDistancia] = useState<string>("--");
   const [estado, setEstado] = useState<string>("--");
   const [connected, setConnected] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const clientRef = useRef<MqttClient | null>(null);
-  
-  // Controle de SMS de alerta após 2 minutos
-  const alertStartTimeRef = useRef<number | null>(null);
-  const smsSentRef = useRef<boolean>(false);
   const estadoAnteriorRef = useRef<string>("--");
-  const SMS_TIMEOUT_MS = 30 * 1000;
+  const alertStartTimeRef = useRef<number | null>(null);
+  const emailSentRef = useRef<boolean>(false);
+  const emailAttemptedRef = useRef<boolean>(false);
+  const EMAIL_TIMEOUT_MS = 30 * 1000; // 30 segundos
 
   // conecta no MQTT
   useEffect(() => {
@@ -41,7 +40,7 @@ export default function AlarmePage() {
 
     client.on("connect", () => {
       setConnected(true);
-      client.subscribe([TOPICO_LDR, TOPICO_ESTADO]);
+      client.subscribe([TOPICO_DISTANCIA, TOPICO_ESTADO]);
     });
 
     client.on("reconnect", () => setConnected(false));
@@ -49,8 +48,9 @@ export default function AlarmePage() {
 
     client.on("message", (topic, payload) => {
       const msg = payload.toString();
-      if (topic === TOPICO_LDR) {
-        setLdr(msg);
+      if (topic === TOPICO_DISTANCIA) {
+        // valor em centímetros vindo do sensor ultrassônico
+        setDistancia(msg);
       } else if (topic === TOPICO_ESTADO) {
         const novoEstado = msg;
         const estadoAnterior = estadoAnteriorRef.current;
@@ -58,17 +58,19 @@ export default function AlarmePage() {
         setEstado(novoEstado);
         setIsPaused(novoEstado === "PAUSADO");
         
-        // Controle de SMS após 2 minutos de alerta
+        // Controle de Email após 30 segundos de alerta
         if (novoEstado === "ALERTA" && estadoAnterior !== "ALERTA") {
           // Alerta acabou de começar
           alertStartTimeRef.current = Date.now();
-          smsSentRef.current = false;
-          console.log('[SMS] Alerta iniciado, contando 2 minutos...');
+          emailSentRef.current = false;
+          emailAttemptedRef.current = false;
+          console.log('[EMAIL] ⏱️ Alerta iniciado, contando 30 segundos para enviar email...');
         } else if (novoEstado !== "ALERTA" && estadoAnterior === "ALERTA") {
           // Alerta parou, resetar contador
           alertStartTimeRef.current = null;
-          smsSentRef.current = false;
-          console.log('[SMS] Alerta parado, contador resetado');
+          emailSentRef.current = false;
+          emailAttemptedRef.current = false;
+          console.log('[EMAIL] 🛑 Alerta parado, contador resetado');
         }
         
         // Atualizar estado anterior
@@ -98,35 +100,42 @@ export default function AlarmePage() {
     publishCommand(novoEstadoPause ? "PAUSE" : "RESUME");
   }
 
-  // Função para enviar SMS de alerta
-  const enviarSMSAlerta = useCallback(async () => {
-    if (smsSentRef.current) return; // Já enviou SMS para este alerta
+  // Função para enviar email de alerta
+  const enviarEmailAlerta = useCallback(async () => {
+    if (emailSentRef.current) return; // Já enviou email para este alerta
+    if (emailAttemptedRef.current) {
+      console.log('[EMAIL] ℹ️ Já houve uma tentativa de envio neste alerta, não tentarei novamente.');
+      return;
+    }
+    // Marcar que já estamos tentando enviar para evitar múltiplas tentativas
+    emailAttemptedRef.current = true;
     
     try {
-      const response = await fetch('/api/alerta/sms', {
+      console.log('[EMAIL] 📧 Iniciando envio de email de alerta...');
+      const response = await fetch('/api/alerta/email', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          message: '🚨 ALERTA: O alarme foi ativado e está soando há mais de 2 minutos! Verifique imediatamente. 🚨'
+          message: '🚨 ALERTA: O alarme foi ativado! Verifique imediatamente.'
         }),
       });
 
       const data = await response.json();
       
       if (response.ok && data.success) {
-        console.log('[SMS] SMS de alerta enviado com sucesso:', data.sid);
-        smsSentRef.current = true; // Marcar como enviado
+        console.log('[EMAIL] ✅ Email de alerta enviado com sucesso! ID:', data.id);
+        emailSentRef.current = true; // Marcar como enviado
       } else {
-        console.error('[SMS] Erro ao enviar SMS:', data.error);
+        console.error('[EMAIL] ❌ Erro ao enviar email:', data.error);
       }
     } catch (error) {
-      console.error('[SMS] Erro ao conectar com API:', error);
+      console.error('[EMAIL] ❌ Erro ao conectar com API de email:', error);
     }
   }, []);
 
-  // Monitorar tempo de alerta e enviar SMS após 2 minutos
+  // Monitorar tempo de alerta e enviar email após 30 segundos
   useEffect(() => {
     if (estado !== "ALERTA" || isPaused) {
       return; // Não está em alerta ou está pausado
@@ -134,25 +143,25 @@ export default function AlarmePage() {
 
     if (!alertStartTimeRef.current) {
       alertStartTimeRef.current = Date.now();
-      smsSentRef.current = false;
+      emailSentRef.current = false;
       return;
     }
 
     const intervalo = setInterval(() => {
-      if (!alertStartTimeRef.current || smsSentRef.current) return;
+      if (!alertStartTimeRef.current || emailSentRef.current || emailAttemptedRef.current) return;
       
       const tempoDecorrido = Date.now() - alertStartTimeRef.current;
       
-      if (tempoDecorrido >= SMS_TIMEOUT_MS) {
-        console.log('[SMS] Alerta ativo há mais de 2 minutos, enviando SMS...');
-        enviarSMSAlerta();
+      if (tempoDecorrido >= EMAIL_TIMEOUT_MS) {
+        console.log('[EMAIL] ⏰ Alerta ativo há 30 segundos, enviando email...');
+        enviarEmailAlerta();
       }
     }, 1000); // Verificar a cada 1 segundo
 
     return () => {
       clearInterval(intervalo);
     };
-  }, [estado, isPaused, enviarSMSAlerta]);
+  }, [estado, isPaused, enviarEmailAlerta]);
 
   const isAlert = estado === "ALERTA";
   const isOk = estado === "OK";
@@ -371,7 +380,7 @@ export default function AlarmePage() {
             </div>
           )}
 
-          {/* LDR e estado em texto dentro da cena */}
+          {/* Distância (cm) e estado em texto dentro da cena */}
           <div
             style={{
               position: "absolute",
@@ -384,7 +393,7 @@ export default function AlarmePage() {
               color: "#9ca3af",
             }}
           >
-            <span>LDR: {ldr}</span>
+            <span>Distância: {distancia} cm</span>
             <span>Estado: {estado}</span>
           </div>
         </div>
