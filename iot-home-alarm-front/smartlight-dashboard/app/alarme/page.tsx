@@ -25,6 +25,112 @@ export default function AlarmePage() {
   const emailAttemptedRef = useRef<boolean>(false);
   const EMAIL_TIMEOUT_MS = 30 * 1000; // 30 segundos
 
+  const responsiveStyles = `
+    @media (max-width: 768px) {
+      .alarm-main-grid {
+        grid-template-columns: 1fr !important;
+        padding: 16px !important;
+        gap: 16px !important;
+      }
+      .alarm-house-body {
+        width: 180px !important;
+        height: 120px !important;
+      }
+      .alarm-house-window {
+        width: 50px !important;
+        height: 50px !important;
+        left: 25px !important;
+        top: 25px !important;
+      }
+      .alarm-house-door {
+        width: 45px !important;
+        height: 70px !important;
+        right: 25px !important;
+      }
+      .alarm-house-roof {
+        width: 180px !important;
+        height: 75px !important;
+        bottom: 110px !important;
+      }
+    }
+    @media (max-width: 480px) {
+      .alarm-main-grid {
+        padding: 12px !important;
+        gap: 12px !important;
+      }
+    }
+  `;
+
+  // Verificar timers de luz e enviar emails se necessário
+  useEffect(() => {
+    const checkAndSendLightEmails = async () => {
+      const LIGHT_TIMEOUT_MS = 10 * 1000; // 10 segundos
+      const now = Date.now();
+
+      // Verificar SALA
+      const salaStartTime = localStorage.getItem('salaLightStartTime');
+      const salaEmailed = localStorage.getItem('salaLightEmailed') === 'true';
+      
+      if (salaStartTime && !salaEmailed) {
+        const salaStart = parseInt(salaStartTime, 10);
+        const elapsed = now - salaStart;
+        
+        if (elapsed >= LIGHT_TIMEOUT_MS) {
+          console.log('[PERSISTÊNCIA] 📧 Página de Alarme: Enviando email de luz da Sala (timeout atingido)');
+          const minutos = Math.floor(elapsed / 60000);
+          const segundos = Math.floor((elapsed % 60000) / 1000);
+          const mensagem = `Detectamos que a luz da Sala está ligada há ${
+            minutos > 0 ? minutos + ' min ' : ''
+          }${segundos} s. Recomendamos reduzir o tempo de uso das luzes para economizar energia e ser mais sustentável.`;
+          
+          try {
+            await fetch("/api/alerta/email", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ message: mensagem, comodo: "sala" }),
+            });
+            localStorage.setItem('salaLightEmailed', 'true');
+            console.log('[PERSISTÊNCIA] ✅ Email da Sala enviado com sucesso');
+          } catch (err) {
+            console.error('[PERSISTÊNCIA] ❌ Erro ao enviar email da Sala:', err);
+          }
+        }
+      }
+
+      // Verificar QUARTO
+      const quartoStartTime = localStorage.getItem('quartoLightStartTime');
+      const quartoEmailed = localStorage.getItem('quartoLightEmailed') === 'true';
+      
+      if (quartoStartTime && !quartoEmailed) {
+        const quartoStart = parseInt(quartoStartTime, 10);
+        const elapsed = now - quartoStart;
+        
+        if (elapsed >= LIGHT_TIMEOUT_MS) {
+          console.log('[PERSISTÊNCIA] 📧 Página de Alarme: Enviando email de luz do Quarto (timeout atingido)');
+          const minutos = Math.floor(elapsed / 60000);
+          const segundos = Math.floor((elapsed % 60000) / 1000);
+          const mensagem = `Detectamos que a luz do Quarto está ligada há ${
+            minutos > 0 ? minutos + ' min ' : ''
+          }${segundos} s. Recomendamos reduzir o tempo de uso das luzes para economizar energia e ser mais sustentável.`;
+          
+          try {
+            await fetch("/api/alerta/email", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ message: mensagem, comodo: "quarto" }),
+            });
+            localStorage.setItem('quartoLightEmailed', 'true');
+            console.log('[PERSISTÊNCIA] ✅ Email do Quarto enviado com sucesso');
+          } catch (err) {
+            console.error('[PERSISTÊNCIA] ❌ Erro ao enviar email do Quarto:', err);
+          }
+        }
+      }
+    };
+
+    checkAndSendLightEmails();
+  }, []);
+
   // conecta no MQTT
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -104,34 +210,34 @@ export default function AlarmePage() {
   const enviarEmailAlerta = useCallback(async () => {
     if (emailSentRef.current) return; // Já enviou email para este alerta
     if (emailAttemptedRef.current) {
-      console.log('[EMAIL] ℹ️ Já houve uma tentativa de envio neste alerta, não tentarei novamente.');
+      console.log('[EMAIL-ALARME] ℹ️ Já houve uma tentativa de envio neste alerta, não tentarei novamente.');
       return;
     }
     // Marcar que já estamos tentando enviar para evitar múltiplas tentativas
     emailAttemptedRef.current = true;
     
     try {
-      console.log('[EMAIL] 📧 Iniciando envio de email de alerta...');
-      const response = await fetch('/api/alerta/email', {
+      console.log('[EMAIL-ALARME] 📧 Iniciando envio de email de alerta...');
+      const response = await fetch('/api/alerta/alarme', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          message: '🚨 ALERTA: O alarme foi ativado! Verifique imediatamente.'
+          message: '⚠️ O alarme foi ativado! Verifique imediatamente sua residência.'
         }),
       });
 
       const data = await response.json();
       
       if (response.ok && data.success) {
-        console.log('[EMAIL] ✅ Email de alerta enviado com sucesso! ID:', data.id);
+        console.log('[EMAIL-ALARME] ✅ Email de alerta enviado com sucesso! ID:', data.id);
         emailSentRef.current = true; // Marcar como enviado
       } else {
-        console.error('[EMAIL] ❌ Erro ao enviar email:', data.error);
+        console.error('[EMAIL-ALARME] ❌ Erro ao enviar email:', data.error);
       }
     } catch (error) {
-      console.error('[EMAIL] ❌ Erro ao conectar com API de email:', error);
+      console.error('[EMAIL-ALARME] ❌ Erro ao conectar com API de email:', error);
     }
   }, []);
 
@@ -168,7 +274,9 @@ export default function AlarmePage() {
   const isPausedState = estado === "PAUSADO";
 
   return (
-    <main
+    <>
+      <style>{responsiveStyles}</style>
+      <main
       style={{
         minHeight: "100vh",
         margin: 0,
@@ -235,6 +343,7 @@ export default function AlarmePage() {
       </div>
 
       <div
+        className="alarm-main-grid"
         style={{
           width: "100%",
           maxWidth: 900,
@@ -247,6 +356,7 @@ export default function AlarmePage() {
       >
         {/* CENA DA CASA */}
         <div
+          className="alarm-house-container"
           style={{
             position: "relative",
             background: "radial-gradient(circle at top, #1d4ed822, #020617)",
@@ -281,6 +391,7 @@ export default function AlarmePage() {
           >
             {/* Corpo da casa */}
             <div
+              className="alarm-house-body"
               style={{
                 position: "relative",
                 width: 260,
@@ -294,6 +405,7 @@ export default function AlarmePage() {
             >
               {/* Janela com cor dependendo do estado */}
               <div
+                className="alarm-house-window"
                 style={{
                   position: "absolute",
                   left: 40,
@@ -322,6 +434,7 @@ export default function AlarmePage() {
 
               {/* Porta */}
               <div
+                className="alarm-house-door"
                 style={{
                   position: "absolute",
                   right: 40,
@@ -348,6 +461,7 @@ export default function AlarmePage() {
 
             {/* Telhado */}
             <div
+              className="alarm-house-roof"
               style={{
                 position: "absolute",
                 bottom: 160,
@@ -382,6 +496,7 @@ export default function AlarmePage() {
 
           {/* Distância (cm) e estado em texto dentro da cena */}
           <div
+            className="alarm-info-text"
             style={{
               position: "absolute",
               bottom: 16,
@@ -400,6 +515,7 @@ export default function AlarmePage() {
 
         {/* PAINEL DE CONTROLE */}
         <div
+          className="alarm-control-section"
           style={{
             display: "flex",
             flexDirection: "column",
@@ -571,6 +687,7 @@ export default function AlarmePage() {
         }
       `}</style>
     </main>
+    </>
   );
 }
 

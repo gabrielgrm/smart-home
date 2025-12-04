@@ -75,6 +75,9 @@ QueueHandle_t filaComandos;
 #define TOPICO_CMD         "projeto/smart-palafita/comandos"
 #define TOPICO_LED_SALA    "projeto/smart-palafita/led/sala"
 #define TOPICO_LED_QUARTO  "projeto/smart-palafita/led/quarto"
+// Tópicos de estado por cômodo (ON/OFF + tempo)
+#define TOPICO_LED_SALA_ESTADO   "projeto/smart-palafita/led/sala/estado"
+#define TOPICO_LED_QUARTO_ESTADO "projeto/smart-palafita/led/quarto/estado"
 
 // ========================================================
 // OBJETOS GLOBAIS
@@ -93,6 +96,12 @@ volatile float distanciaAtual = -1.0;
 int clickCount = 0;
 unsigned long lastClickTime = 0;
 const unsigned long CLICK_TIMEOUT = 1000;
+
+// Estado das luzes por cômodo (para reportar ON/OFF e duração)
+volatile bool salaIsOn = false;
+volatile bool quartoIsOn = false;
+unsigned long salaOnSince = 0;
+unsigned long quartoOnSince = 0;
 
 // Limite de disparo em cm
 const float DISTANCIA_LIMITE_CM = 30.0;
@@ -314,6 +323,29 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
         if (parseRGB(msg, r, g, b)) {
             setSalaColor(r, g, b);
             Serial.printf("LED SALA -> R:%d G:%d B:%d\n", r, g, b);
+            // publicar estado ON/OFF e duração
+            bool isOn = (r != 0 || g != 0 || b != 0);
+            if (isOn && !salaIsOn) {
+                salaIsOn = true;
+                salaOnSince = millis();
+                if (mqttClient.connected()) {
+                    char buf[64];
+                    // publicar ON com timestamp (ms desde boot)
+                    snprintf(buf, sizeof(buf), "ON,%lu", (unsigned long)salaOnSince);
+                    mqttClient.publish(TOPICO_LED_SALA_ESTADO, buf);
+                }
+            } else if (!isOn && salaIsOn) {
+                // ficou OFF — calcular duração
+                unsigned long now = millis();
+                unsigned long dur = (salaOnSince > 0) ? (now - salaOnSince) : 0;
+                salaIsOn = false;
+                salaOnSince = 0;
+                if (mqttClient.connected()) {
+                    char buf[64];
+                    snprintf(buf, sizeof(buf), "OFF,%lu", (unsigned long)dur);
+                    mqttClient.publish(TOPICO_LED_SALA_ESTADO, buf);
+                }
+            }
         } else {
             Serial.println("Payload inválido para LED SALA (use R,G,B).");
         }
@@ -323,6 +355,27 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
         if (parseRGB(msg, r, g, b)) {
             setQuartoColor(r, g, b);
             Serial.printf("LED QUARTO -> R:%d G:%d B:%d\n", r, g, b);
+            // publicar estado ON/OFF e duração
+            bool isOn = (r != 0 || g != 0 || b != 0);
+            if (isOn && !quartoIsOn) {
+                quartoIsOn = true;
+                quartoOnSince = millis();
+                if (mqttClient.connected()) {
+                    char buf[64];
+                    snprintf(buf, sizeof(buf), "ON,%lu", (unsigned long)quartoOnSince);
+                    mqttClient.publish(TOPICO_LED_QUARTO_ESTADO, buf);
+                }
+            } else if (!isOn && quartoIsOn) {
+                unsigned long now = millis();
+                unsigned long dur = (quartoOnSince > 0) ? (now - quartoOnSince) : 0;
+                quartoIsOn = false;
+                quartoOnSince = 0;
+                if (mqttClient.connected()) {
+                    char buf[64];
+                    snprintf(buf, sizeof(buf), "OFF,%lu", (unsigned long)dur);
+                    mqttClient.publish(TOPICO_LED_QUARTO_ESTADO, buf);
+                }
+            }
         } else {
             Serial.println("Payload inválido para LED QUARTO (use R,G,B).");
         }
