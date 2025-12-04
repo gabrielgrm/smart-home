@@ -8,7 +8,7 @@ function generateAlarmEmailHTML(
   dataHora: string,
   disableUrl?: string
 ): string {
-  const desativarLink = disableUrl || 'https://smartpalafita.local/alarme';
+  const desativarLink = disableUrl || 'https://smartlight-dashboard.vercel.app/alarme';
 
   return `
   <body style="margin:0;padding:0;background-color:#020617;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
