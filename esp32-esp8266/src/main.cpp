@@ -731,18 +731,11 @@ void setup() {
 // ========================================================
 // LOOP PRINCIPAL
 // ========================================================
-// Com FreeRTOS, o loop() pode ser usado para outras
-// tarefas de baixa prioridade ou ficar vazio
 void loop() {
-    // O FreeRTOS está rodando as tarefas em background
-    // Aqui podemos colocar código de baixa prioridade
-    // ou apenas deixar vazio
-    
-    // Mostrar informações de debug periodicamente
     static unsigned long ultimoDebug = 0;
     unsigned long agora = millis();
     
-    if (agora - ultimoDebug > 30000) {  // A cada 30 segundos
+    if (agora - ultimoDebug > 30000) { 
         ultimoDebug = agora;
         
         Serial.println("\n[Debug] Status do sistema:");
@@ -759,6 +752,5 @@ void loop() {
         }
     }
     
-    // Delay não bloqueante para não consumir CPU
     vTaskDelay(pdMS_TO_TICKS(1000));
 }
