@@ -186,7 +186,6 @@ export async function POST(request: Request) {
       message ||
       'A luz está ligada há mais tempo que o esperado. Recomendamos desligá-la para economizar energia.';
 
-    const desativarLink = 'https://smartpalafita.local/dashboard';
     const dataHora = new Date().toLocaleString('pt-BR');
 
     // Selecionar configuração do cômodo ou usar sala como padrão
@@ -208,7 +207,7 @@ export async function POST(request: Request) {
 
     console.log('[EMAIL-LUZ] 🚀 Chamando API Resend...');
 
-    const htmlContent = generateRoomEmailHTML(config, mensagemAlerta, dataHora, desativarLink);
+    const htmlContent = generateRoomEmailHTML(config, mensagemAlerta, dataHora);
 
     const emailResponse = await resend.emails.send({
       from: 'Alarme Smart Palafita <onboarding@resend.dev>',
