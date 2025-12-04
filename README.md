@@ -1,288 +1,401 @@
-# Home Alarm Guardian 🔒🚨  
-### Sistema IoT de Monitoramento e Alarme Residencial
+# 🏠 Smart Palafita - Sistema de Automação Residencial com IoT
 
-Este projeto apresenta o **Home Alarm Guardian**, um sistema IoT completo para segurança residencial utilizando **ESP32**, **MQTT via HiveMQ Cloud**, **Dashboard Web em Next.js** para controle remoto em tempo real e **envio de alertas SMS via Twilio**.  
-Foi desenvolvido como parte da disciplina **Sistemas Embarcados – CESAR School**.
+Um sistema inteligente de automação residencial baseado em **ESP32**, **MQTT** e **Next.js** que monitora e controla luzes, alarmes de segurança e envia alertas por email em tempo real.
 
----
+## 📋 Sumário
 
-# 1. Objetivo do Projeto 🎯
+- [Visão Geral](#visão-geral)
+- [Características](#características)
+- [Arquitetura](#arquitetura)
+- [Requisitos](#requisitos)
+- [Instalação](#instalação)
+- [Configuração](#configuração)
+- [Uso](#uso)
+- [Estrutura do Projeto](#estrutura-do-projeto)
+- [API Endpoints](#api-endpoints)
+- [Variáveis de Ambiente](#variáveis-de-ambiente)
+- [Troubleshooting](#troubleshooting)
 
-O objetivo é implementar um sistema IoT profissional de monitoramento e alarme residencial com os seguintes requisitos:
+## 🎯 Visão Geral
 
-- **Captura de dados** via sensor LDR no ESP32.  
-- **Comunicação via Wi-Fi + MQTT (TLS)** com o broker HiveMQ Cloud.  
-- **Dashboard Web** para visualização e controle remoto do sistema (STOP/PAUSE/RESUME).  
-- **LED RGB + buzzer** representam visualmente e sonoramente o estado do sistema.  
-- **Lógica avançada de alarme travado (latched)** que só desarma mediante ação humana.  
-- **Envio de SMS automático** via Twilio quando o alerta permanece ativo por um tempo prolongado.  
-- Abordagem modular, escalável e ideal para aplicações reais de automação e segurança.
+**Smart Palafita** é um sistema de automação residencial que integra:
 
----
+- **Hardware**: ESP32 com sensores de distância ultrassônico
+- **IoT**: Protocolo MQTT para comunicação em tempo real
+- **Frontend**: Dashboard Next.js responsivo com tema escuro
+- **Alertas**: Sistema de email automático via Resend
+- **Funcionalidades**:
+  - ✅ Controle de LEDs RGB por cômodo
+  - ✅ Alarme de segurança com detecção de movimento
+  - ✅ Alertas de sustentabilidade (tempo de uso de luzes)
+  - ✅ Persistência de estado através de localStorage
+  - ✅ Interface responsiva (Desktop/Mobile)
 
-# 2. Arquitetura Geral do Sistema 🧠
+## ✨ Características
 
-A solução é dividida em quatro camadas:
+### Controle de Iluminação
+- 🎨 **Color Picker**: Selecione cores RGB para cada cômodo
+- ⏱️ **Timeout Automático**: Alerta após 10 segundos de uso contínuo
+- 💾 **Persistência**: Estado mantido entre navegações
+- 📊 **Monitoramento**: Tempo real de uso das luzes
 
-## 🔹 1. ESP32 – Dispositivo Físico
-- Leitura contínua do sensor LDR (0 a 4095).  
-- Controle dos atuadores: LED RGB + Buzzer.  
-- Conexão Wi-Fi e envio de dados via MQTT.  
-- Lógica de estado do alarme (OK, ALERTA, PAUSADO).  
-- Processamento de comandos remotos via MQTT.  
-- Requisição HTTPS com autenticação básica para Twilio.
+### Segurança
+- 🚨 **Alarme de Movimento**: Sensor ultrassônico detecta intrusões
+- 🔔 **Alertas Email**: Notificações imediatas
+- ⏸️ **Pausa/Retomada**: Controle do estado do alarme
+- 📍 **Status em Tempo Real**: Monitoramento contínuo
 
-## 🔹 2. Broker MQTT (HiveMQ Cloud)
-- Middleware responsável pela comunicação em tempo real.  
-- Autenticação com usuário/senha.  
-- Conexões seguras através de **MQTTS na porta 8883**.  
-- Tópicos separados para publicar dados e receber comandos.
+### Sustentabilidade
+- 🌱 **Alertas de Uso**: Notificações quando luz fica ligada muito tempo
+- 📧 **Relatórios por Email**: Detalhes completos de consumo
+- 🎯 **Metas**: Redução de consumo de energia
 
-## 🔹 3. Dashboard Web (Next.js)
-- Interface visual moderna e intuitiva.  
-- Atualização de estado em tempo real.  
-- Envio de comandos (STOP/PAUSE/RESUME).  
-- Destaque visual quando o sistema entra em ALERTA (sirenes piscando).
+## 🏗️ Arquitetura
 
-## 🔹 4. Serviço de SMS (Twilio)
-- API REST utilizada pelo ESP32.  
-- Envio de SMS para o número de emergência após 10s de alerta ativo.  
-- Comunicação via HTTPS utilizando WiFiClientSecure.
-
----
-
-# 3. Funcionalidades Implementadas ⚙️
-
-## 3.1. Lógica do Alarme
-
-A lógica central funciona em três estados:
-
-### 🟢 Estado **OK**
-- LED verde aceso.  
-- Buzzer desligado.  
-- Sistema operando normalmente.
-
-### 🔴 Estado **ALERTA**
-- Ativado quando o LDR lê **4095**.  
-- LED vermelho aceso ou piscando.  
-- Buzzer ligado via PWM.  
-- Sistema trava em alerta (**alertaLatched = true**).  
-- Só pode ser desarmado manualmente ou via MQTT.  
-- Após 10 segundos em alerta:
-  - Envia SMS via Twilio.
-
-### 🔵 Estado **PAUSADO**
-- Ativado por multi-cliques no botão físico (6 cliques).  
-- LED azul aceso.  
-- Buzzer desligado.  
-- Sistema ignora leitura do LDR.  
-- Pode ser reativado por novos multi-cliques ou via MQTT.
-
----
-
-## 3.2. LED RGB + Buzzer (Atuadores)
-
-| Estado      | LED RGB | Buzzer | Descrição |
-|-------------|---------|--------|-----------|
-| OK          | Verde   | OFF    | Monitoramento normal |
-| ALERTA      | Vermelho (fixo ou piscando) | ON | Intrusão detectada |
-| PAUSADO     | Azul    | OFF    | Sistema suspenso |
-
-**Pinos utilizados:**
-
-| Atuador | Pino ESP32 |
-|---------|------------|
-| LED Vermelho | 18 |
-| LED Verde | 4 |
-| LED Azul | 27 |
-| Buzzer | 23 (PWM canal 0) |
-
----
-
-## 3.3. Botão Físico (Pino 19)
-
-### 🔘 Clique simples
-- Desarma alerta.  
-- Sai do modo pausado.  
-- Retorna tudo ao estado **OK**.
-
-### 🔘 Multiclique (≥ 6 cliques em 1 segundo)
-Alterna o modo **PAUSADO**:
-- Entra no modo PAUSADO → LED azul.  
-- Sai do modo PAUSADO → volta para OK.  
-
----
-
-## 3.4. Comandos via MQTT
-
-O ESP32 assina o tópico:
-
-`projeto/guardian/comandos`
-
-E aceita três comandos:
-
-### 🔹 "STOP"
-- Desativa alerta.  
-- Sai do modo pausado.  
-- LED verde.  
-- Publica **"OK"**.
-
-### 🔹 "PAUSE"
-- Entra no modo pausado.  
-- LED azul e buzzer off.  
-- Publica **"PAUSADO"**.
-
-### 🔹 "RESUME"
-- Sai do modo pausado.  
-- Volta para OK.  
-- Publica **"OK"**.
-
----
-
-## 3.5. Envio de SMS (Twilio)
-
-O SMS é enviado quando:
-
-1. ALERTA foi ativado.  
-2. 10 segundos se passaram.  
-3. O alarme continua travado.  
-4. NÃO está pausado.  
-5. Nenhum SMS foi enviado ainda para este alerta.
-
-O conteúdo do SMS:
-
-> "Alerta ativado no Guardian!"
-
-A requisição HTTPS POST é enviada para:
-
-`https://api.twilio.com/2010-04-01/Accounts/{SID}/Messages.json`
-
-Com autenticação:
-
-- `TWILIO_ACCOUNT_SID`  
-- `TWILIO_AUTH_TOKEN`
-
----
-
-# 4. Tópicos MQTT Utilizados 📨
-
-## Publicações (ESP32 → Dashboard)
-| Tópico | Payload | Descrição |
-|--------|---------|-----------|
-| projeto/guardian/sensor/ldr | "0" a "4095" | Medição do sensor |
-| projeto/guardian/sensor/estado | "OK" / "ALERTA" / "PAUSADO" | Estado atual |
-
-## Assinatura (Dashboard → ESP32)
-| Tópico | Comandos |
-|--------|----------|
-| projeto/guardian/comandos | STOP, PAUSE, RESUME |
-
----
-
-# 5. Estrutura do Projeto 📁
-
-```text
-home-alarm-guardian/
-├── README.md
-├── platformio.ini
-├── esp32-esp8266/
-│   ├── src/main.cpp
-│   └── include/config.h
-├── web-dashboard/
-│   ├── package.json
-│   └── app/page.tsx
-├── docs/
-│   ├── Relatorio_HomeAlarmGuardian.pdf
-│   └── imagens/
-└── schematics/
-    └── home_alarm_guardian.fzz
+```
+┌─────────────────────────────────────────────────────────┐
+│                   Smart Palafita                         │
+├─────────────────────────────────────────────────────────┤
+│                                                           │
+│  ┌──────────────┐         ┌──────────────┐              │
+│  │   ESP32      │────────▶│ HiveMQ Cloud │              │
+│  │  + Sensores  │◀────────│   (MQTT)     │              │
+│  └──────────────┘         └──────────────┘              │
+│         △                         △                      │
+│         │                         │                      │
+│         └─────────────┬───────────┘                      │
+│                       │                                  │
+│                 ┌─────▼──────┐                           │
+│                 │  Next.js    │                           │
+│                 │  Dashboard  │                           │
+│                 │  (Vercel)   │                           │
+│                 └─────┬──────┘                           │
+│                       │                                  │
+│         ┌─────────────┴─────────────┐                    │
+│         │                           │                    │
+│    ┌────▼─────┐             ┌──────▼──────┐             │
+│    │ LocalStore│             │  Resend API │             │
+│    │ (State)   │             │  (Email)    │             │
+│    └───────────┘             └─────────────┘             │
+│                                                           │
+└─────────────────────────────────────────────────────────┘
 ```
 
-# 6. `config.h` (Modelo) 🔐
+## 📦 Requisitos
 
-```cpp
-#define WIFI_SSID   "SeuSSID"
-#define WIFI_PASS   "SenhaWiFi"
+### Hardware
+- **ESP32**: Microcontrolador com suporte WiFi/Bluetooth
+- **Sensor Ultrassônico HC-SR04**: Para detecção de movimento
+- **LEDs RGB WS2812B** (ou similar): Para iluminação controlada
+- **Cabo USB**: Para programação e alimentação
 
-#define MQTT_HOST   "abc140925c0d4acea7acf98b911c0419.s1.eu.hivemq.cloud"
-#define MQTT_PORT   8883
-#define MQTT_USER   "admin"
-#define MQTT_PASS   "Teste@123"
+### Software - Firmware (ESP32)
+- PlatformIO IDE
+- Bibliotecas:
+  - `PubSubClient` - Cliente MQTT
+  - `AsyncTCP` - Comunicação assíncrona
+  - `ESPAsyncWebServer` - Servidor web
+  - `Adafruit NeoPixel` - Controle de LEDs RGB
 
-#define TWILIO_ACCOUNT_SID "ACxxxxxxxxxxxxxxxx"
-#define TWILIO_AUTH_TOKEN  "xxxxxxxxxxxxxxxx"
-#define TWILIO_FROM_NUMBER "+1xxxxxxxxxx"
-#define ALERT_SMS_TO_NUMBER "+55xxxxxxxxxx"
+### Software - Frontend
+- **Node.js**: v20.x ou superior
+- **npm**: v10.x ou superior
+- **Navegador moderno**: Chrome, Firefox, Safari, Edge
+
+### Serviços Online
+- **HiveMQ Cloud**: Broker MQTT gerenciado
+- **Resend**: Serviço de envio de emails
+- **Vercel**: Hospedagem do frontend
+
+## 🚀 Instalação
+
+### 1️⃣ Clonar o Repositório
+
+```bash
+git clone https://github.com/gabrielgrm/iot-home-alarm.git
+cd iot-home-alarm
 ```
 
-# 7. Como Rodar o Firmware (ESP32) 🧪
+### 2️⃣ Configurar o Firmware (ESP32)
 
-Instale o PlatformIO no VSCode.
+```bash
+cd iot-home-alarm
 
-Clone o repositório:
+# Instalar dependências
+pio lib install
 
-```cpp
-git clone https://github.com/seu-usuario/home-alarm-guardian.git
+# Configurar SSID e senha WiFi em src/main.cpp
+# Configurar credenciais MQTT em src/main.cpp
+
+# Compilar e fazer upload
+pio run --target upload
+
+# Monitorar output
+pio device monitor --baud 115200
 ```
-Crie o arquivo:
-```cpp
-.../include/config.h
-```
-Preencha as credenciais (Wi-Fi, MQTT, Twilio).
 
-Conecte o ESP32 via USB.
+### 3️⃣ Configurar o Frontend
 
-Faça upload:
-VSCode → PlatformIO → Upload
+```bash
+cd iot-home-alarm-front/smartlight-dashboard
 
-Abra o Serial Monitor:
-baud: 115200
-
-# 8. Como Rodar o Dashboard (Next.js) 🌐
-
-Entre no diretório:
-
-cd smartlight-dashboard
-
-Instale dependências:
-
-```cpp
+# Instalar dependências
 npm install
+
+# Criar arquivo de ambiente
+cp .env.example .env.local
+
+# Preencheer variáveis de ambiente
 ```
-Execute o modo desenvolvimento:
-```cpp
+
+### 4️⃣ Executar Localmente
+
+```bash
+# Desenvolvimento
 npm run dev
+
+# Produção (local)
+npm run build
+npm start
+
+# Acesse http://localhost:3000
 ```
-Acesse no navegador:
+
+### 5️⃣ Deploy no Vercel
+
+```bash
+# Instalar CLI do Vercel
+npm install -g vercel
+
+# Deploy
+vercel --prod
+
+# Configure Environment Variables no dashboard do Vercel
+```
+
+## ⚙️ Configuração
+
+### Configuração do ESP32
+
+Edite `src/main.cpp`:
+
 ```cpp
-http://localhost:3000
+// WiFi
+const char* ssid = "SEU_SSID";
+const char* password = "SUA_SENHA";
+
+// MQTT
+const char* mqtt_server = "*****************************.s1.eu.hivemq.cloud";
+const int mqtt_port = 8883;
+const char* mqtt_user = "seu_usuario";
+const char* mqtt_pass = "sua_senha";
+
+// Tópicos MQTT
+#define TOPICO_LED_SALA "projeto/smart-palafita/led/sala/comando"
+#define TOPICO_LED_QUARTO "projeto/smart-palafita/led/quarto/comando"
+#define TOPICO_DISTANCIA "projeto/smart-palafita/sensor/medida"
+#define TOPICO_ESTADO "projeto/smart-palafita/sensor/estado"
+#define TOPICO_CMD "projeto/smart-palafita/comandos"
 ```
-## Funcionalidades do Dashboard
 
-Exibir o valor atual do LDR em tempo real 🔆
+### Configuração do HiveMQ Cloud
 
-Mostrar o estado do sistema (OK / ALERTA / PAUSADO)
+1. Acesse https://www.hivemq.cloud/
+2. Crie um cluster gratuito
+3. Anote a URL e credenciais
+4. Configure no ESP32 e Frontend
 
-Botão STOP para desarmar o alarme
+### Configuração do Resend
 
-Botão PAUSE / RESUME
+1. Acesse https://resend.com
+2. Crie uma conta
+3. Copie sua API Key
+4. Configure em `.env.local`:
 
-Tela com sirenes piscando quando estiver em ALERTA 🚨
+```env
+RESEND_API_KEY=re_seu_token_aqui
+ALERT_EMAIL=seu_email@example.com
+```
 
-# 9. Possíveis Melhorias Futuras 🚀
+### Configuração do Vercel
 
-Histórico completo de eventos (Supabase / MongoDB)
+1. Acesse https://vercel.com/dashboard
+2. Acesse projeto "smartlight-dashboard"
+3. Settings → Environment Variables
+4. Adicione:
+   - `RESEND_API_KEY`: Sua chave Resend
+   - `ALERT_EMAIL`: Email para receber alertas
+5. Selecione todos os ambientes (Production, Preview, Development)
 
-Notificações Push via Firebase (FCM)
+## 📱 Uso
 
-Validação completa de certificado TLS no ESP32
+### Dashboard - Página de Luzes (`/leds`)
 
-Suporte a sensores adicionais (PIR, magnético, temperatura)
+```typescript
+// Interface de controle
+- Seletor de Cômodo (Sala / Quarto)
+- Color Picker para cores RGB
+- Botão "Aplicar Cor" - Liga a luz
+- Botão "Desligar" - Desliga a luz
+- Contador de tempo em tempo real
+```
 
-Modo NOTURNO com sensibilidade configurável
+**Fluxo:**
+1. Selecione o cômodo
+2. Escolha uma cor no color picker
+3. Clique "Aplicar Cor"
+4. O contador iniciará (10 segundos)
+5. Após 10 segundos, email automático é enviado
+6. Clique "Desligar" para interromper
 
-Integração com assistentes virtuais (Alexa / Google Home)
+### Dashboard - Página de Alarme (`/alarme`)
 
-# 10. Integrantes 👥
+```typescript
+// Interface de controle
+- Status de conexão MQTT
+- Distância do sensor (cm)
+- Estado do alarme (NORMAL / ALERTA)
+- Botão "Parar Alarme" - Desativa o alarme
+- Botão "Pausar/Retomar" - Pausa temporariamente
+```
 
-Gabriel Rodrigues, João Marcelo, Arthur Freire
+**Fluxo:**
+1. Alarme monitora sensor ultrassônico
+2. Ao detectar movimento (< 50cm), entra em ALERTA
+3. Email automático é enviado após 30 segundos
+4. Clique "Parar Alarme" para desativar
+
+### Persistência de Estado
+
+O sistema salva automaticamente:
+
+```javascript
+// localStorage keys
+- salaLightStartTime: timestamp quando luz ligou
+- quartoLightStartTime: timestamp quando luz ligou
+- salaLightEmailed: flag se email foi enviado
+- quartoLightEmailed: flag se email foi enviado
+```
+
+**Comportamento:**
+- Navegar para outra página: timer continua rodando
+- Recarregar a página: timer retoma do ponto onde parou
+- Fechar o navegador: estado é restaurado na próxima abertura
+
+## 📡 API Endpoints
+
+### POST `/api/alerta/email`
+
+Envia email de alerta de luz.
+
+**Request:**
+```json
+{
+  "message": "Detectamos que a luz está ligada há 15 s...",
+  "comodo": "sala"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Email de luz enviado com sucesso",
+  "id": "email-id-123"
+}
+```
+
+**Cômodos suportados:**
+- `sala`: Cor azul (#1d4ed8)
+- `quarto`: Cor azul (#1d4ed8)
+
+---
+
+### POST `/api/alerta/alarme`
+
+Envia email de alerta de segurança.
+
+**Request:**
+```json
+{
+  "message": "O alarme foi ativado! Verifique imediatamente..."
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Email de alarme enviado com sucesso",
+  "id": "email-id-456"
+}
+```
+
+---
+
+### POST `/api/lookup`
+
+Endpoint para verificar status do sistema.
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "services": {
+    "mqtt": "connected",
+    "email": "configured"
+  }
+}
+```
+
+---
+
+## 🌍 Tópicos MQTT
+
+| Tópico | Direção | Descrição | Formato |
+|--------|---------|-----------|---------|
+| `projeto/smart-palafita/led/sala/comando` | ESP32 ← | Comando para LED da sala | `{"r":255,"g":100,"b":50}` |
+| `projeto/smart-palafita/led/quarto/comando` | ESP32 ← | Comando para LED do quarto | `{"r":255,"g":100,"b":50}` |
+| `projeto/smart-palafita/led/sala/estado` | ESP32 → | Estado do LED da sala | `ON` ou `OFF` |
+| `projeto/smart-palafita/led/quarto/estado` | ESP32 → | Estado do LED do quarto | `ON` ou `OFF` |
+| `projeto/smart-palafita/sensor/medida` | ESP32 → | Distância ultrassônica (cm) | `25.5` |
+| `projeto/smart-palafita/sensor/estado` | ESP32 → | Estado do alarme | `NORMAL`, `ALERTA`, `PAUSADO` |
+| `projeto/smart-palafita/comandos` | ESP32 ← | Comandos globais | `STOP`, `PAUSE`, `RESUME` |
+
+## 📊 Estrutura do Projeto
+
+```
+iot-home-alarm/
+├── docs/                        # Documentação do projeto
+├── esp32-esp8266/               # Firmware para ESP32/ESP8266 (PlatformIO)
+│   ├── platformio.ini           # Configuração PlatformIO
+│   ├── include/                 # Headers e arquivos de configuração
+│   │   └── config.h
+│   ├── lib/                     # Bibliotecas do firmware
+│   ├── src/                     # Código-fonte do firmware
+│   │   └── main.cpp
+│   └── test/                    # Testes do firmware
+├── next-js/
+│   └── smartlight-dashboard/    # Frontend Next.js (dashboard)
+│       ├── app/
+│       │   ├── globals.css
+  │   ├── layout.tsx       # Layout principal
+  │   ├── page.tsx         # Página principal
+  │   ├── alarme/
+  │   │   └── page.tsx     # Página de alarme
+  │   ├── leds/
+  │   │   └── page.tsx     # Página de controle de LEDs
+  │   └── api/             # Rotas API (Next.js)
+  │       └── alerta/
+  │           ├── alarme/
+  │           │   └── route.ts
+  │           └── email/
+  │               └── route.ts
+  ├── public/               # Assets estáticos
+  ├── package.json          # Dependências do frontend
+  ├── next.config.ts        # Configuração Next.js
+  ├── tsconfig.json         # TypeScript config
+  └── README.md             # Informações do dashboard
+├── platformio.ini               # (pode existir no firmware) Configuração PlatformIO principal
+└── README.md                    # Este arquivo
+```
