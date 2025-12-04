@@ -366,33 +366,36 @@ Endpoint para verificar status do sistema.
 
 ```
 iot-home-alarm/
-├── src/
-│   ├── main.cpp                 # Código principal do ESP32
-│   └── [headers e bibliotecas]
-├── include/
-│   └── config.h                 # Configurações do hardware
-├── iot-home-alarm-front/
-│   └── smartlight-dashboard/    # Frontend Next.js
+├── docs/                        # Documentação do projeto
+├── esp32-esp8266/               # Firmware para ESP32/ESP8266 (PlatformIO)
+│   ├── platformio.ini           # Configuração PlatformIO
+│   ├── include/                 # Headers e arquivos de configuração
+│   │   └── config.h
+│   ├── lib/                     # Bibliotecas do firmware
+│   ├── src/                     # Código-fonte do firmware
+│   │   └── main.cpp
+│   └── test/                    # Testes do firmware
+├── next-js/
+│   └── smartlight-dashboard/    # Frontend Next.js (dashboard)
 │       ├── app/
-│       │   ├── page.tsx         # Home (redireciona para alarme)
-│       │   ├── layout.tsx       # Layout principal
-│       │   ├── alarme/
-│       │   │   └── page.tsx     # Página de alarme
-│       │   ├── leds/
-│       │   │   └── page.tsx     # Página de controle de LEDs
-│       │   └── api/
-│       │       └── alerta/
-│       │           ├── email/
-│       │           │   └── route.ts   # Email de luz
-│       │           ├── alarme/
-│       │           │   └── route.ts   # Email de alarme
-│       │           └── lookup/
-│       │               └── route.ts   # Status do sistema
-│       ├── public/              # Assets estáticos
-│       ├── package.json         # Dependências
-│       ├── next.config.ts       # Configuração Next.js
-│       ├── tsconfig.json        # TypeScript config
-│       └── .env.local           # Variáveis de ambiente
-├── platformio.ini               # Configuração PlatformIO
+│       │   ├── globals.css
+  │   ├── layout.tsx       # Layout principal
+  │   ├── page.tsx         # Página principal
+  │   ├── alarme/
+  │   │   └── page.tsx     # Página de alarme
+  │   ├── leds/
+  │   │   └── page.tsx     # Página de controle de LEDs
+  │   └── api/             # Rotas API (Next.js)
+  │       └── alerta/
+  │           ├── alarme/
+  │           │   └── route.ts
+  │           └── email/
+  │               └── route.ts
+  ├── public/               # Assets estáticos
+  ├── package.json          # Dependências do frontend
+  ├── next.config.ts        # Configuração Next.js
+  ├── tsconfig.json         # TypeScript config
+  └── README.md             # Informações do dashboard
+├── platformio.ini               # (pode existir no firmware) Configuração PlatformIO principal
 └── README.md                    # Este arquivo
 ```
