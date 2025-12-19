@@ -26,7 +26,7 @@ function generateAlarmEmailHTML(
                   </div>
                   <div>
                     <p style="margin:0 0 6px 0;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;color:#e0e7ff;font-weight:700;">
-                      Smart Palafita • Segurança
+                      Smart Home Security • Segurança
                     </p>
                     <h1 style="margin:0;font-size:20px;color:#ffffff;font-weight:700;line-height:1.2;">
                       ⚠️ ALARME ATIVADO
@@ -51,7 +51,7 @@ function generateAlarmEmailHTML(
             <tr>
               <td style="padding:28px 32px;">
                 <p style="margin:0 0 18px 0;font-size:14px;line-height:1.7;color:#d1d5db;">
-                  <strong style="color:#60a5fa;">Um evento de segurança foi detectado</strong> no seu sistema Smart Palafita:
+                  <strong>Um evento de segurança foi detectado</strong> no seu sistema Smart Home Security:
                 </p>
 
                 <!-- Mensagem de alarme destacada -->
@@ -134,7 +134,7 @@ function generateAlarmEmailHTML(
             <tr>
               <td style="padding:16px 32px;background:#020617;border-top:1px solid #1f2937;">
                 <p style="margin:0;font-size:11px;color:#6b7280;line-height:1.5;text-align:center;">
-                  <strong style="color:#e5e7eb;">Smart Palafita</strong> • Sistema de Segurança Residencial<br/>
+                  <strong style="color:#e5e7eb;">Smart Home Security</strong> • Sistema de Segurança Residencial<br/>
                   Alertas de segurança em tempo real para sua proteção
                 </p>
               </td>
@@ -184,11 +184,11 @@ export async function POST(request: Request) {
       message ||
       '⚠️ O alarme foi ativado! Verifique imediatamente sua residência.';
 
-    const desativarLink = disableUrl || 'https://smartpalafita.local/alarme';
+    const desativarLink = disableUrl || 'https://smarthome.local/alarme';
     const dataHora = new Date().toLocaleString('pt-BR');
 
     console.log('[EMAIL-ALARME] 📧 Preparando para enviar email:');
-    console.log('[EMAIL-ALARME]   - De: Alarme Smart Palafita <onboarding@resend.dev>');
+    console.log('[EMAIL-ALARME]   - De: Alarme Smart Home Security <onboarding@resend.dev>');
     console.log('[EMAIL-ALARME]   - Para:', alertEmail);
     console.log('[EMAIL-ALARME]   - Assunto: 🚨 ALERTA CRÍTICO: Alarme de Segurança Ativado!');
     console.log('[EMAIL-ALARME]   - Tipo: ALARME 🚨');
@@ -198,7 +198,7 @@ export async function POST(request: Request) {
     const htmlContent = generateAlarmEmailHTML(mensagemAlerta, dataHora, desativarLink);
 
     const emailResponse = await resend.emails.send({
-      from: 'Alarme Smart Palafita <onboarding@resend.dev>',
+      from: 'Alarme Smart Home Security <onboarding@resend.dev>',
       to: alertEmail,
       subject: '🚨 ALERTA CRÍTICO: Alarme de Segurança Ativado!',
       html: htmlContent,

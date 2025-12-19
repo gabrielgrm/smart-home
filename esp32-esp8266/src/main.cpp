@@ -70,14 +70,14 @@ QueueHandle_t filaComandos;
 // ========================================================
 // TOPICOS MQTT
 // ========================================================
-#define TOPICO_SENSOR      "projeto/smart-palafita/sensor/medida"
-#define TOPICO_ESTADO      "projeto/smart-palafita/sensor/estado"
-#define TOPICO_CMD         "projeto/smart-palafita/comandos"
-#define TOPICO_LED_SALA    "projeto/smart-palafita/led/sala"
-#define TOPICO_LED_QUARTO  "projeto/smart-palafita/led/quarto"
+#define TOPICO_SENSOR      "projeto/home-security/sensor/medida"
+#define TOPICO_ESTADO      "projeto/home-security/sensor/estado"
+#define TOPICO_CMD         "projeto/home-security/comandos"
+#define TOPICO_LED_SALA    "projeto/home-security/led/sala"
+#define TOPICO_LED_QUARTO  "projeto/home-security/led/quarto"
 // Tópicos de estado por cômodo (ON/OFF + tempo)
-#define TOPICO_LED_SALA_ESTADO   "projeto/smart-palafita/led/sala/estado"
-#define TOPICO_LED_QUARTO_ESTADO "projeto/smart-palafita/led/quarto/estado"
+#define TOPICO_LED_SALA_ESTADO   "projeto/home-security/led/sala/estado"
+#define TOPICO_LED_QUARTO_ESTADO "projeto/home-security/led/quarto/estado"
 
 // ========================================================
 // OBJETOS GLOBAIS
@@ -233,7 +233,7 @@ void conectarMQTT() {
     while (!mqttClient.connected()) {
         Serial.print("Conectando ao MQTT via IPv6... ");
 
-        String clientId = "ESP32-Smart-Palafita-";
+        String clientId = "ESP32-Home-Security-";
         clientId += String(random(0xffff), HEX);
 
         IPv6Address ipv6Local = WiFi.localIPv6();

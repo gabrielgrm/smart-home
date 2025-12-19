@@ -9,9 +9,9 @@ const MQTT_URL =
 const MQTT_USER = "admin";
 const MQTT_PASS = "Teste@123";
 
-const TOPICO_DISTANCIA = "projeto/smart-palafita/sensor/medida";
-const TOPICO_ESTADO = "projeto/smart-palafita/sensor/estado";
-const TOPICO_CMD = "projeto/smart-palafita/comandos";
+const TOPICO_DISTANCIA = "projeto/home-security/sensor/medida";
+const TOPICO_ESTADO = "projeto/home-security/sensor/estado";
+const TOPICO_CMD = "projeto/home-security/comandos";
 
 export default function AlarmePage() {
   const [distancia, setDistancia] = useState<string>("--");

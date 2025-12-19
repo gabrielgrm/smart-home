@@ -59,7 +59,7 @@ function generateRoomEmailHTML(
                   </div>
                   <div>
                     <p style="margin:0 0 6px 0;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;color:${config.corPrincipal};font-weight:700;">
-                      Smart Palafita
+                      Smart Home Security
                     </p>
                     <h1 style="margin:0;font-size:18px;color:#e5e7eb;font-weight:600;line-height:1.3;">
                       Luz da ${config.nome} ligada
@@ -136,7 +136,7 @@ function generateRoomEmailHTML(
             <tr>
               <td style="padding:16px 32px;background:#020617;border-top:1px solid #1f2937;">
                 <p style="margin:0;font-size:11px;color:#6b7280;line-height:1.5;text-align:center;">
-                  <strong style="color:#e5e7eb;">Smart Palafita</strong> • Sistema de Automação Residencial<br/>
+                  <strong style="color:#e5e7eb;">Smart Home Security</strong> • Sistema de Automação Residencial<br/>
                   Este é um alerta automático de sustentabilidade
                 </p>
               </td>
@@ -200,7 +200,7 @@ export async function POST(request: Request) {
     }
 
     console.log('[EMAIL-LUZ] 📧 Preparando para enviar email:');
-    console.log('[EMAIL-LUZ]   - De: Alarme Smart Palafita <onboarding@resend.dev>');
+    console.log('[EMAIL-LUZ]   - De: Alarme Smart Home Security <onboarding@resend.dev>');
     console.log('[EMAIL-LUZ]   - Para:', alertEmail);
     console.log('[EMAIL-LUZ]   - Assunto:', assunto);
     console.log('[EMAIL-LUZ]   - Cômodo:', config.nome);
@@ -210,7 +210,7 @@ export async function POST(request: Request) {
     const htmlContent = generateRoomEmailHTML(config, mensagemAlerta, dataHora);
 
     const emailResponse = await resend.emails.send({
-      from: 'Alarme Smart Palafita <onboarding@resend.dev>',
+      from: 'Alarme Smart Home Security <onboarding@resend.dev>',
       to: alertEmail,
       subject: assunto,
       html: htmlContent,

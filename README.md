@@ -1,4 +1,4 @@
-# 🏠 Smart Palafita - Sistema de Automação Residencial com IoT
+# 🏠 Smart Home Security - Sistema de Automação Residencial com IoT
 
 Um sistema inteligente de automação residencial baseado em **ESP32**, **MQTT** e **Next.js** que monitora e controla luzes, alarmes de segurança e envia alertas por email em tempo real.
 
@@ -18,7 +18,7 @@ Um sistema inteligente de automação residencial baseado em **ESP32**, **MQTT**
 
 ## 🎯 Visão Geral
 
-**Smart Palafita** é um sistema de automação residencial que integra:
+**Smart Home Security** é um sistema de automação residencial que integra:
 
 - **Hardware**: ESP32 com sensores de distância ultrassônico
 - **IoT**: Protocolo MQTT para comunicação em tempo real
@@ -54,7 +54,7 @@ Um sistema inteligente de automação residencial baseado em **ESP32**, **MQTT**
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                   Smart Palafita                         │
+│                   Smart Home Security                   │
 ├─────────────────────────────────────────────────────────┤
 │                                                           │
 │  ┌──────────────┐         ┌──────────────┐              │
@@ -191,11 +191,11 @@ const char* mqtt_user = "seu_usuario";
 const char* mqtt_pass = "sua_senha";
 
 // Tópicos MQTT
-#define TOPICO_LED_SALA "projeto/smart-palafita/led/sala/comando"
-#define TOPICO_LED_QUARTO "projeto/smart-palafita/led/quarto/comando"
-#define TOPICO_DISTANCIA "projeto/smart-palafita/sensor/medida"
-#define TOPICO_ESTADO "projeto/smart-palafita/sensor/estado"
-#define TOPICO_CMD "projeto/smart-palafita/comandos"
+#define TOPICO_LED_SALA "projeto/home-security/led/sala/comando"
+#define TOPICO_LED_QUARTO "projeto/home-security/led/quarto/comando"
+#define TOPICO_DISTANCIA "projeto/home-security/sensor/medida"
+#define TOPICO_ESTADO "projeto/home-security/sensor/estado"
+#define TOPICO_CMD "projeto/home-security/comandos"
 ```
 
 ### Configuração do HiveMQ Cloud
@@ -354,13 +354,13 @@ Endpoint para verificar status do sistema.
 
 | Tópico | Direção | Descrição | Formato |
 |--------|---------|-----------|---------|
-| `projeto/smart-palafita/led/sala/comando` | ESP32 ← | Comando para LED da sala | `{"r":255,"g":100,"b":50}` |
-| `projeto/smart-palafita/led/quarto/comando` | ESP32 ← | Comando para LED do quarto | `{"r":255,"g":100,"b":50}` |
-| `projeto/smart-palafita/led/sala/estado` | ESP32 → | Estado do LED da sala | `ON` ou `OFF` |
-| `projeto/smart-palafita/led/quarto/estado` | ESP32 → | Estado do LED do quarto | `ON` ou `OFF` |
-| `projeto/smart-palafita/sensor/medida` | ESP32 → | Distância ultrassônica (cm) | `25.5` |
-| `projeto/smart-palafita/sensor/estado` | ESP32 → | Estado do alarme | `NORMAL`, `ALERTA`, `PAUSADO` |
-| `projeto/smart-palafita/comandos` | ESP32 ← | Comandos globais | `STOP`, `PAUSE`, `RESUME` |
+| `projeto/home-security/led/sala/comando` | ESP32 ← | Comando para LED da sala | `{"r":255,"g":100,"b":50}` |
+| `projeto/home-security/led/quarto/comando` | ESP32 ← | Comando para LED do quarto | `{"r":255,"g":100,"b":50}` |
+| `projeto/home-security/led/sala/estado` | ESP32 → | Estado do LED da sala | `ON` ou `OFF` |
+| `projeto/home-security/led/quarto/estado` | ESP32 → | Estado do LED do quarto | `ON` ou `OFF` |
+| `projeto/home-security/sensor/medida` | ESP32 → | Distância ultrassônica (cm) | `25.5` |
+| `projeto/home-security/sensor/estado` | ESP32 → | Estado do alarme | `NORMAL`, `ALERTA`, `PAUSADO` |
+| `projeto/home-security/comandos` | ESP32 ← | Comandos globais | `STOP`, `PAUSE`, `RESUME` |
 
 ## 📊 Estrutura do Projeto
 

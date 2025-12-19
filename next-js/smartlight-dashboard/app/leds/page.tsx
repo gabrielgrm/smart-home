@@ -9,11 +9,11 @@ const MQTT_URL =
 const MQTT_USER = "admin";
 const MQTT_PASS = "Teste@123";
 
-const TOPICO_ESTADO = "projeto/smart-palafita/sensor/estado";
-const TOPICO_LED_SALA = "projeto/smart-palafita/led/sala";
-const TOPICO_LED_QUARTO = "projeto/smart-palafita/led/quarto";
-const TOPICO_LED_SALA_ESTADO = "projeto/smart-palafita/led/sala/estado";
-const TOPICO_LED_QUARTO_ESTADO = "projeto/smart-palafita/led/quarto/estado";
+const TOPICO_ESTADO = "projeto/home-security/sensor/estado";
+const TOPICO_LED_SALA = "projeto/home-security/led/sala";
+const TOPICO_LED_QUARTO = "projeto/home-security/led/quarto";
+const TOPICO_LED_SALA_ESTADO = "projeto/home-security/led/sala/estado";
+const TOPICO_LED_QUARTO_ESTADO = "projeto/home-security/led/quarto/estado";
 
 type Comodo = "sala" | "quarto";
 
